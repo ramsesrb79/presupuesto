@@ -410,6 +410,8 @@
 </style>
 <style>
   .brand-ic svg { width: 18px; height: 18px; }
+  .lock-ic svg { width: 34px; height: 34px; }
+  .brand-ic, .lock-ic { background: linear-gradient(180deg, #3ccf6e, #14935a) !important; color: #fff !important; }
   .totline { display: block; margin: 0 4px; line-height: 1.5; }
 </style>
 
@@ -430,6 +432,7 @@
     <div class="alert-btns"><button type="button" id="c-no">Cancelar</button><button type="button" id="c-si" class="danger">Eliminar</button></div>
   </div>
 </div>
+<div class="lock" id="lock" hidden><div class="lock-in"><span class="brand-ic lock-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M7 4.5h10M7 9.5h10M7 14.5h6"/><path d="M15.5 14.5l2 2 3.5-4"/></svg></span><div id="lk-box" style="width:100%"></div><button class="link sm" type="button" id="lk-olvide">¿Olvidaste tu código?</button></div></div>
 <div class="toast" id="toast" hidden></div>
 <input type="file" id="archivo" accept=".json,application/json" hidden>
 
@@ -578,6 +581,9 @@
     der: svg('<path d="m9 5 7 7-7 7"/>', 2.2),
     check: svg('<path d="m5 12.5 4.5 4.5L19 7.5"/>', 2.4),
     doc: svg('<path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8.5z"/><path d="M14 3.5v5h5M9 13h6M9 16.5h4"/>'),
+    cara: svg('<path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M9 9.5v1M15 9.5v1M12 9.5v3.5h-1M9.5 16a3.5 3.5 0 0 0 5 0"/>'),
+    borrar: svg('<path d="M9 5h11a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H9l-6-7z"/><path d="m12 9 5 6M17 9l-5 6"/>'),
+    candado: svg('<rect x="5" y="10.5" width="14" height="10" rx="2.2"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/>', 2),
     tabla: svg('<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M9.5 4.5v15"/>')
   };
   // Íconos extra para presupuestos de trabajo (mismo estilo que los demás)
@@ -629,12 +635,13 @@
   ];
 
   // ================= Estado =================
-  let S = { presupuestos: [], gastos: [], metodos: METODOS_BASE.map((m) => ({ ...m })), config: { empresa: '' } };
+  let S = { presupuestos: [], gastos: [], metodos: METODOS_BASE.map((m) => ({ ...m })), config: { empresa: '', claveCopia: '' } };
   const r2 = (v) => Math.round(num(v) * 100) / 100;
   function normalizar(s) {
     s = s && typeof s === 'object' ? s : {};
-    const out = { presupuestos: [], gastos: [], metodos: [], config: { empresa: '' } };
+    const out = { presupuestos: [], gastos: [], metodos: [], config: { empresa: '', claveCopia: '' } };
     out.config.empresa = s.config && typeof s.config.empresa === 'string' ? s.config.empresa : '';
+    out.config.claveCopia = s.config && typeof s.config.claveCopia === 'string' ? s.config.claveCopia : '';
     out.metodos = (Array.isArray(s.metodos) && s.metodos.length ? s.metodos : METODOS_BASE).filter((m) => m && m.id).map((m) => ({ id: String(m.id), nombre: String(m.nombre || 'Forma de pago'), reembolso: !!m.reembolso }));
     out.presupuestos = (Array.isArray(s.presupuestos) ? s.presupuestos : []).filter((p) => p && p.id).map((p) => ({
       id: String(p.id), nombre: String(p.nombre || 'Presupuesto'), tipo: TIPOS[p.tipo] ? p.tipo : 'evento',
@@ -659,26 +666,208 @@
 
   // ----- Guardado en el dispositivo (IndexedDB, con respaldo en localStorage) -----
   const DBN = 'presupuestos-trabajo';
-  let dbP = null;
+  let dbP = null, usarIdb = !!window.indexedDB;
   const db = () => dbP || (dbP = new Promise((res, rej) => { const r = indexedDB.open(DBN, 1); r.onupgradeneeded = () => r.result.createObjectStore('k'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
   async function idbOp(modo, fn) { const d = await db(); return new Promise((res, rej) => { const tx = d.transaction('k', modo); const q = fn(tx.objectStore('k')); tx.oncomplete = () => res(q && q.result); tx.onerror = () => rej(tx.error); }); }
   const idbPut = (k, v) => idbOp('readwrite', (st) => st.put(v, k));
   const idbGet = (k) => idbOp('readonly', (st) => st.get(k));
+  const idbDel = (k) => idbOp('readwrite', (st) => st.delete(k));
+  const lsDel = (k) => { try { localStorage.removeItem(k); } catch (e) {} };
+  const LSK = { estado: 'presupuestos_estado', estado_enc: 'presupuestos_estado_enc' };
+  async function leer(k) {
+    if (usarIdb) { try { const v = await idbGet(k); if (v !== undefined && v !== null) return { v, deLS: false }; } catch (e) { usarIdb = false; } }
+    const v = lsGet(LSK[k]); return v ? { v, deLS: true } : null;
+  }
+  async function escribir(k, v) {
+    if (usarIdb) { try { await idbPut(k, v); lsDel(LSK[k]); return; } catch (e) { usarIdb = false; } }
+    lsSet(LSK[k], v);
+  }
+  async function borrarClave(k) { try { await idbDel(k); } catch (e) {} lsDel(LSK[k]); }
   async function cargar() {
-    let d = null;
-    try { d = await idbGet('estado'); } catch (e) {}
-    if (!d) d = lsGet('presupuestos_estado');
-    S = normalizar(d || {});
+    if (lockCfg()) {
+      const e = await leer('estado_enc');
+      if (e) { if (e.deLS) await escribir('estado_enc', e.v); S = normalizar({}); return 'bloqueada'; }
+      lsDel('pt_bloqueo');
+    }
+    const g = await leer('estado');
+    S = normalizar(g ? g.v : {});
+    if (g && g.deLS) await escribir('estado', JSON.parse(JSON.stringify(S)));
+  }
+
+  // ================= Seguridad =================
+  // Con el bloqueo activo, los datos se guardan cifrados (AES-GCM de 256 bits) con una llave que sale de tu código
+  // (PBKDF2-SHA256). Sin el código no se pueden leer. Las copias usan su propia contraseña.
+  const cifradoOk = !!(window.crypto && window.crypto.subtle);
+  const tEnc = new TextEncoder(), tDec = new TextDecoder();
+  const b64 = (buf) => { const u = new Uint8Array(buf); let x = ''; for (let i = 0; i < u.length; i += 0x8000) x += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(x); };
+  const unb64 = (t) => Uint8Array.from(atob(t), (c) => c.charCodeAt(0));
+  const rnd = (n) => crypto.getRandomValues(new Uint8Array(n));
+  const ITER_PIN = 310000, ITER_COPIA = 600000;
+  async function derivar(pass, salt, iter) {
+    const base = await crypto.subtle.importKey('raw', tEnc.encode(pass), 'PBKDF2', false, ['deriveKey']);
+    return crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: iter, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+  }
+  async function cifrar(key, obj) { const iv = rnd(12); const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, tEnc.encode(JSON.stringify(obj))); return { iv: b64(iv), ct: b64(ct) }; }
+  async function descifrar(key, iv, ct) { const pt = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, key, unb64(ct)); return JSON.parse(tDec.decode(pt)); }
+  const lockCfg = () => lsGet('pt_bloqueo');
+  const sesion = { key: null, bloqueada: false };
+  let cadena = Promise.resolve();
+  let bioOk = false;
+  function persistir() {
+    const snap = JSON.parse(JSON.stringify(S));
+    if (lockCfg()) {
+      if (!sesion.key) return;
+      const key = sesion.key;
+      cadena = cadena.then(() => cifrar(key, snap)).then((c) => escribir('estado_enc', c)).catch(() => toast('No se pudo guardar el cambio. Inténtalo otra vez.'));
+    } else cadena = cadena.then(() => escribir('estado', snap)).catch(() => toast('No se pudo guardar el cambio. Inténtalo otra vez.'));
   }
   let tGuardar = null;
   function guardar() {
+    persistir();
     lsSet('pt_ultimo_cambio', Date.now());
-    const copia = JSON.parse(JSON.stringify(S));
-    idbPut('estado', copia).catch(() => lsSet('presupuestos_estado', copia));
     clearTimeout(tGuardar);
     tGuardar = setTimeout(() => { copiaAuto(); }, 2500);
     avisoCopia();
   }
+  async function revisarBio() { try { bioOk = !!(window.PublicKeyCredential && window.isSecureContext && window.indexedDB && await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()); } catch (e) { bioOk = false; } }
+  async function activarBloqueo(pin) {
+    const salt = rnd(16), key = await derivar(pin, salt, ITER_PIN);
+    await cadena;
+    await escribir('estado_enc', await cifrar(key, JSON.parse(JSON.stringify(S))));
+    const prev = lockCfg();
+    lsSet('pt_bloqueo', { v: 1, salt: b64(salt), iter: ITER_PIN, ...(prev && prev.bio ? { bio: prev.bio } : {}) });
+    sesion.key = key;
+    await borrarClave('estado');
+    if (prev && prev.bio) { try { await idbPut('aes', key); } catch (e) { const c = lockCfg(); delete c.bio; lsSet('pt_bloqueo', c); } }
+  }
+  async function probarPin(pin) {
+    await cadena;
+    const c = lockCfg(), r = await leer('estado_enc'), e = r && r.v;
+    const key = await derivar(pin, unb64(c.salt), c.iter);
+    const datos = await descifrar(key, e.iv, e.ct);
+    return { key, datos };
+  }
+  async function quitarBloqueo() {
+    await cadena;
+    await escribir('estado', JSON.parse(JSON.stringify(S)));
+    try { await idbDel('aes'); } catch (e) {}
+    await borrarClave('estado_enc');
+    ['pt_bloqueo', 'pt_bloqueo_fallos', 'pt_bloqueo_hasta'].forEach(lsDel);
+    sesion.key = null;
+  }
+  async function activarBio() {
+    try {
+      const cred = await navigator.credentials.create({ publicKey: {
+        challenge: rnd(32), rp: { name: 'Presupuestos' }, user: { id: rnd(16), name: 'presupuestos', displayName: 'Presupuestos' },
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
+        authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged' }, timeout: 60000 } });
+      await idbPut('aes', sesion.key);
+      if (!(await idbGet('aes'))) throw new Error('sin llave');
+      const c = lockCfg(); c.bio = b64(cred.rawId); lsSet('pt_bloqueo', c);
+      toast('Face ID activado');
+    } catch (e) {
+      toast(e && e.name === 'NotAllowedError' ? 'No se activó Face ID.' : 'Face ID no está disponible aquí. Sigue usando tu código.');
+    }
+  }
+  async function desactivarBio() { const c = lockCfg(); if (c) { delete c.bio; lsSet('pt_bloqueo', c); } try { await idbDel('aes'); } catch (e) {} }
+  async function abrirConBio() {
+    const c = lockCfg(); if (!c || !c.bio) return false;
+    try {
+      await navigator.credentials.get({ publicKey: { challenge: rnd(32), allowCredentials: [{ type: 'public-key', id: unb64(c.bio) }], userVerification: 'required', timeout: 60000 } });
+      const key = await idbGet('aes'); if (!key) return false;
+      const r = await leer('estado_enc'); const e = r && r.v;
+      desbloqueado(key, await descifrar(key, e.iv, e.ct));
+      return true;
+    } catch (e) { return false; }
+  }
+  // Teclado de código (pantalla de bloqueo y hojas de ajustes)
+  let padActivo = null;
+  function crearPad(root, o) {
+    let pin = '', ocupado = false;
+    root.innerHTML = `<div class="pad-wrap"><h2 class="pad-t">${esc(o.titulo)}</h2><p class="pad-s" role="status">${esc(o.sub || '')}</p><div class="dots" aria-hidden="true">${'<i></i>'.repeat(6)}</div><div class="pad">${[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => `<button type="button" data-k="${n}">${n}</button>`).join('')}${o.bio ? `<button type="button" data-k="bio" class="pad-fn" aria-label="Usar Face ID">${IC.cara}</button>` : '<span></span>'}<button type="button" data-k="0">0</button><button type="button" data-k="del" class="pad-fn" aria-label="Borrar">${IC.borrar}</button></div></div>`;
+    const dots = [...root.querySelectorAll('.dots i')], sEl = root.querySelector('.pad-s');
+    const pinta = () => dots.forEach((d, i) => d.classList.toggle('on', i < pin.length));
+    const api = {
+      tecla(k) {
+        if (k === 'bio') { if (!ocupado && o.alBio) o.alBio(); return; }
+        if (ocupado) return;
+        if (k === 'del') { pin = pin.slice(0, -1); pinta(); return; }
+        if (!/^\d$/.test(k) || pin.length >= 6) return;
+        pin += k; pinta();
+        if (pin.length === 6) { const v = pin; ocupado = true; setTimeout(() => o.alCompletar(v, api), 120); }
+      },
+      reset(msg, error) {
+        pin = ''; ocupado = false; pinta();
+        if (msg != null) sEl.textContent = msg;
+        sEl.classList.toggle('neg', !!error);
+        if (error) { const d = root.querySelector('.dots'); d.classList.remove('shake'); void d.offsetWidth; d.classList.add('shake'); }
+      },
+      titulo(t) { root.querySelector('.pad-t').textContent = t; },
+      espera(msg) { ocupado = true; sEl.textContent = msg; sEl.classList.remove('neg'); }
+    };
+    root.querySelector('.pad').addEventListener('click', (e) => { const b = e.target.closest('[data-k]'); if (b) api.tecla(b.dataset.k); });
+    padActivo = api;
+    return api;
+  }
+  const esperaRestante = () => Math.max(0, (lsGet('pt_bloqueo_hasta') || 0) - Date.now());
+  function mostrarLock() {
+    sesion.bloqueada = true;
+    if (!$('#sheet').hidden) cerrarSheet();
+    if (!$('#confirm').hidden) cerrarC(false);
+    $('#lock').hidden = false;
+    const c = lockCfg(), conBio = !!(c && c.bio && bioOk);
+    const pad = crearPad($('#lk-box'), {
+      titulo: 'Escribe tu código', sub: conBio ? 'O usa Face ID' : '', bio: conBio,
+      alBio: () => intentarBio(pad),
+      alCompletar: async (pin, api) => {
+        const w = esperaRestante();
+        if (w > 0) { api.reset(`Espera ${Math.ceil(w / 1000)} segundos para intentar otra vez`, true); return; }
+        api.espera('Abriendo…');
+        try { const r = await probarPin(pin); desbloqueado(r.key, r.datos); }
+        catch (e) {
+          const n = (lsGet('pt_bloqueo_fallos') || 0) + 1; lsSet('pt_bloqueo_fallos', n);
+          if (n >= 5) { const seg = 30 * Math.pow(2, n - 5); lsSet('pt_bloqueo_hasta', Date.now() + seg * 1000); api.reset(`Código incorrecto. Espera ${seg} segundos.`, true); }
+          else api.reset('Código incorrecto', true);
+        }
+      }
+    });
+    if (conBio) intentarBio(pad);
+  }
+  async function intentarBio(pad) { pad.espera('Usando Face ID…'); const ok = await abrirConBio(); if (!ok && sesion.bloqueada) pad.reset('Escribe tu código', false); }
+  function desbloqueado(key, datos) {
+    sesion.key = key; sesion.bloqueada = false;
+    S = normalizar(datos);
+    lsSet('pt_bloqueo_fallos', 0); lsDel('pt_bloqueo_hasta');
+    $('#lock').hidden = true; $('#lk-box').innerHTML = ''; padActivo = null;
+    render();
+  }
+  function bloquearAhora() {
+    if (!lockCfg()) return;
+    sesion.key = null; S = normalizar({}); presAbierto = null;
+    $('#view').innerHTML = '';
+    mostrarLock();
+  }
+  $('#lk-olvide').addEventListener('click', async () => {
+    if (!(await confirmar('¿Olvidaste tu código?', 'Por seguridad, sin el código no se pueden abrir tus datos. Puedes borrarlos y luego cargar tu última copia con «Abrir copia».', 'Borrar y empezar'))) return;
+    try { await idbDel('aes'); } catch (e) {}
+    await borrarClave('estado_enc'); await borrarClave('estado');
+    ['pt_bloqueo', 'pt_bloqueo_fallos', 'pt_bloqueo_hasta', 'pt_ultima_copia', 'pt_ultimo_cambio'].forEach(lsDel);
+    desbloqueado(null, {});
+    persistir();
+    toast('Datos borrados. Usa «Abrir copia» en Ajustes para recuperarlos.');
+  });
+  let ocultoDesde = 0;
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) { ocultoDesde = Date.now(); return; }
+    if (lockCfg() && !sesion.bloqueada && ocultoDesde && Date.now() - ocultoDesde > 60000) bloquearAhora();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (!padActivo || e.metaKey || e.ctrlKey || e.altKey) return;
+    const visible = !$('#lock').hidden || (!$('#sheet').hidden && $('#sheet-box .pad-wrap'));
+    if (!visible) return;
+    if (/^\d$/.test(e.key)) { padActivo.tecla(e.key); e.preventDefault(); }
+    else if (e.key === 'Backspace') { padActivo.tecla('del'); e.preventDefault(); }
+  });
 
   // ----- App de iPhone (Xcode): puente para guardar archivos -----
   const nativo = (() => { try { return window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.misFinanzas || null; } catch (e) { return null; } })();
@@ -686,7 +875,7 @@
   const esperasN = {}; let nEsperaN = 0;
   window.__mfRespuesta = (id, ok) => { const r = esperasN[id]; delete esperasN[id]; if (r) r(!!ok); };
   const nativoGuardar = (accion, nombre, datos, mime) => new Promise((res) => { const id = ++nEsperaN; esperasN[id] = res; nativo.postMessage({ id, accion, nombre, mime, b64: aB64(datos) }); });
-  function copiaAuto() { if (!nativo || !hayDatos()) return; nativoGuardar('auto', 'Copia automática.json', textoCopia(), 'application/json').catch(() => {}); }
+  async function copiaAuto() { if (!nativo || !hayDatos() || sesion.bloqueada) return; try { const t = await armarCopia(); if (t) await nativoGuardar('auto', 'Copia automática.json', t, 'application/json'); } catch (e) {} }
 
   async function bajarArchivo(nombre, datos, mime) {
     if (nativo) { try { if (await nativoGuardar('compartir', nombre, datos, mime)) toast('Archivo guardado'); } catch (e) { toast('No se pudo guardar el archivo.'); } return true; }
@@ -886,8 +1075,15 @@
     let html = encabezado('Ajustes');
     html += `<section class="section"><div class="sh"><h2>Empresa</h2></div><div class="group"><div class="frow"><label for="cfg-emp">Nombre</label><input id="cfg-emp" type="text" placeholder="Aparece en tus reportes" value="${esc(S.config.empresa)}" autocomplete="off"></div></div></section>`;
     html += `<section class="section"><div class="sh"><h2>Formas de pago</h2><button class="link sm" type="button" data-act="nuevo-metodo">Agregar</button></div><div class="group">${S.metodos.map((m) => `<button class="row" type="button" data-act="editar-metodo" data-id="${m.id}"><span class="ic ic-color">${icMetodo(m)}</span><span class="rt"><span class="t1">${esc(m.nombre)}</span>${m.reembolso ? '<span class="t2">Se le reembolsa a una persona</span>' : ''}</span><span class="chev">${IC.der}</span></button>`).join('')}</div><p class="note">Al registrar un pago eliges con qué se pagó. Si la forma de pago es "por reembolsar", la app te pide quién lo pagó y lo lleva en Pendientes hasta que lo marques como reembolsado.</p></section>`;
-    const uc = lsGet('pt_ultima_copia');
-    html += `<section class="section"><div class="sh"><h2>Copia de seguridad</h2></div><div class="group"><button class="row" type="button" data-act="guardar-copia"><span class="ic ic-color">${ICAT.recibo}</span><span class="rt"><span class="t1">Guardar copia</span><span class="t2">${uc ? 'Última: ' + fCorta(isoDe(new Date(uc))) : 'Todavía no guardas ninguna'}</span></span><span class="chev">${IC.der}</span></button><button class="row" type="button" data-act="abrir-copia"><span class="ic ic-color">${ICAT.bolsa}</span><span class="rt"><span class="t1">Abrir copia</span><span class="t2">Reemplaza lo que hay en este dispositivo</span></span><span class="chev">${IC.der}</span></button></div><p class="note">Tus datos se guardan solo en este dispositivo. Guarda una copia en iCloud Drive de vez en cuando; con ella puedes pasar todo a otro teléfono o computadora con <b>Abrir copia</b>.${nativo ? ' Además, la app guarda sola una copia en Archivos › En mi iPhone.' : ''}</p></section>`;
+    const uc = lsGet('pt_ultima_copia'), lk = lockCfg();
+    html += `<section class="section"><div class="sh"><h2>Copia de seguridad</h2></div><div class="group"><button class="row" type="button" data-act="guardar-copia"><span class="ic ic-color">${ICAT.recibo}</span><span class="rt"><span class="t1">Guardar copia</span><span class="t2">${uc ? 'Última: ' + fCorta(isoDe(new Date(uc))) : 'Todavía no guardas ninguna'}</span></span><span class="chev">${IC.der}</span></button><button class="row" type="button" data-act="abrir-copia"><span class="ic ic-color">${ICAT.bolsa}</span><span class="rt"><span class="t1">Abrir copia</span><span class="t2">Reemplaza lo que hay en este dispositivo</span></span><span class="chev">${IC.der}</span></button></div><p class="note">Tus datos se guardan solo en este dispositivo. Guarda una copia en iCloud Drive o OneDrive de vez en cuando${cifradoOk ? '; se guarda cifrada con tu contraseña de copias' : ''}. Con ella pasas todo a otro teléfono o computadora con <b>Abrir copia</b>.${nativo ? ' Además, la app guarda sola una copia en Archivos › En mi iPhone.' : ''}</p></section>`;
+    html += cifradoOk ? `<section class="section"><div class="sh"><h2>Seguridad</h2></div><div class="group">
+        <div class="frow"><label for="z-lock" class="lbl-w">Bloquear con código</label><input id="z-lock" class="switch" type="checkbox" ${lk ? 'checked' : ''}></div>
+        ${lk && bioOk ? `<div class="frow"><label for="z-bio" class="lbl-w">Usar Face ID o Touch ID</label><input id="z-bio" class="switch" type="checkbox" ${lk.bio ? 'checked' : ''}></div>` : ''}
+        ${lk ? `<button class="row plain" type="button" data-act="pin-cambiar"><span class="rt"><span class="t1" style="color:var(--tint)">Cambiar código</span></span></button><button class="row plain" type="button" data-act="bloquear-ahora"><span class="rt"><span class="t1" style="color:var(--tint)">Bloquear ahora</span></span></button>` : ''}
+        <button class="row plain" type="button" data-act="clave-copia"><span class="rt"><span class="t1">Contraseña de las copias</span><span class="t2">${S.config.claveCopia ? 'Lista. Tus copias se guardan cifradas.' : 'Crea una para cifrar tus copias'}</span></span><span class="amt" style="color:var(--tint)">${S.config.claveCopia ? 'Cambiar' : 'Crear'}</span></button>
+        ${S.config.claveCopia ? '<button class="row plain" type="button" data-act="ver-clave"><span class="rt"><span class="t1" style="color:var(--tint)">Ver contraseña de las copias</span></span></button>' : ''}
+      </div><p class="note">${lk ? 'La app se bloquea al abrirla y cuando la dejas más de un minuto. Tus datos están cifrados con tu código.' : 'Con el bloqueo, la app pide tu código al abrirse y tus datos se guardan cifrados en el dispositivo.'}</p></section>` : '<p class="note">El bloqueo y las copias cifradas funcionan cuando abres la app desde su dirección web (https).</p>';
     html += `<section class="section"><div class="group"><button class="row" type="button" data-act="borrar-todo"><span class="rt"><span class="t1 neg">Borrar todos los datos</span></span></button></div></section>`;
     return html;
   }
@@ -910,7 +1106,11 @@
     pintarNav();
     $('#view').innerHTML = VISTAS[vista][1]();
     if (vista === 'inicio' && presAbierto && sub === 'gastos' && $('#g-lista')) montarGastos();
-    if (vista === 'ajustes') { const e = $('#cfg-emp'); if (e) e.addEventListener('change', () => { S.config.empresa = e.value.trim(); guardar(); }); }
+    if (vista === 'ajustes') {
+      const e = $('#cfg-emp'); if (e) e.addEventListener('change', () => { S.config.empresa = e.value.trim(); guardar(); });
+      const lk = $('#z-lock'); if (lk) lk.addEventListener('change', (ev) => { const on = !!lockCfg(); ev.target.checked = on; sheetPin(on ? 'quitar' : 'crear'); });
+      const bio = $('#z-bio'); if (bio) bio.addEventListener('change', async (ev) => { if (ev.target.checked) await activarBio(); else { await desactivarBio(); toast('Face ID desactivado'); } render(); });
+    }
     avisoCopia();
   }
   function ir(v) {
@@ -926,7 +1126,7 @@
   // ================= Hojas =================
   let alCerrar = null;
   function abrirSheet(html) { const b = $('#sheet-box'); b.innerHTML = html; $('#sheet').hidden = false; b.scrollTop = 0; setTimeout(() => { const f = b.querySelector('[autofocus]'); if (f && window.matchMedia('(pointer: fine)').matches && !b.contains(document.activeElement)) f.focus(); }, 60); return b; }
-  function cerrarSheet() { $('#sheet').hidden = true; $('#sheet-box').innerHTML = ''; if (alCerrar) { const f = alCerrar; alCerrar = null; f(); } }
+  function cerrarSheet() { $('#sheet').hidden = true; $('#sheet-box').innerHTML = ''; if ($('#lock').hidden) padActivo = null; if (alCerrar) { const f = alCerrar; alCerrar = null; f(); } }
   const cabeza = (titulo, conGuardar = true) => `<div class="sheet-head"><button class="link" type="button" data-act="cerrar-sheet">${conGuardar ? 'Cancelar' : 'Cerrar'}</button><h2>${esc(titulo)}</h2>${conGuardar ? '<button class="link strong" type="submit">Guardar</button>' : '<span></span>'}</div>`;
   let resolverC = null;
   function confirmar(titulo, texto, ok = 'Eliminar', peligro = true) {
@@ -1170,23 +1370,147 @@
     });
   }
 
+  // ----- Código de bloqueo -----
+  const volverAjustes = () => { cerrarSheet(); render(); };
+  function sheetPin(modo) {
+    const titulos = { crear: 'Bloquear con código', cambiar: 'Cambiar código', quitar: 'Quitar bloqueo' };
+    const b = abrirSheet(`<div class="sheet-head"><button class="link" type="button" id="pin-cancel">Cancelar</button><h2>${titulos[modo]}</h2><span></span></div><div id="pin-box"></div><p class="note" id="pin-note" style="text-align:center"></p>`);
+    $('#pin-cancel', b).addEventListener('click', volverAjustes);
+    const box = $('#pin-box', b);
+    const pedirNuevo = (titulo) => {
+      let primero = null;
+      crearPad(box, { titulo, sub: '6 dígitos', alCompletar: async (pin, api) => {
+        if (primero === null) { primero = pin; api.titulo('Confirma tu código'); api.reset('Escríbelo otra vez', false); return; }
+        if (pin !== primero) { primero = null; api.titulo(titulo); api.reset('No coinciden. Empieza de nuevo.', true); return; }
+        api.espera('Cifrando tus datos…');
+        try { await activarBloqueo(pin); toast(modo === 'crear' ? 'Bloqueo activado' : 'Código cambiado'); volverAjustes(); }
+        catch (e) { api.reset('No se pudo guardar. Inténtalo otra vez.', true); primero = null; }
+      } });
+    };
+    if (modo === 'crear') {
+      $('#pin-note', b).textContent = 'Te lo pedirá cada vez que abras la app. Tus datos quedan cifrados con este código: si lo olvidas, solo los recuperas con una copia.';
+      pedirNuevo('Crea un código');
+    } else {
+      crearPad(box, { titulo: 'Escribe tu código actual', alCompletar: async (pin, api) => {
+        api.espera('Revisando…');
+        try { await probarPin(pin); } catch (e) { api.reset('Código incorrecto', true); return; }
+        if (modo === 'quitar') { await quitarBloqueo(); toast('Bloqueo quitado'); volverAjustes(); }
+        else pedirNuevo('Escribe el código nuevo');
+      } });
+    }
+  }
+
+  // ----- Contraseña de las copias -----
+  let cacheClave = null;
+  async function llaveCopia() {
+    const pass = S.config.claveCopia;
+    if (cacheClave && cacheClave.pass === pass) return cacheClave;
+    const salt = rnd(16);
+    cacheClave = { pass, salt, key: await derivar(pass, salt, ITER_COPIA) };
+    return cacheClave;
+  }
+  function campoClave(id, ph, foco) {
+    return `<div class="pass-wrap"><input id="${id}" class="field-pass" type="password" placeholder="${ph}" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore data-lpignore="true" ${foco ? 'autofocus' : ''}><button class="pass-ver" type="button" data-ver="${id}">Mostrar</button></div>`;
+  }
+  document.addEventListener('click', (e) => {
+    const bt = e.target.closest('[data-ver]'); if (!bt) return;
+    const inp = document.getElementById(bt.dataset.ver); if (!inp) return;
+    const ver = inp.type === 'password'; inp.type = ver ? 'text' : 'password'; bt.textContent = ver ? 'Ocultar' : 'Mostrar';
+  });
+  function sheetClaveCopia(despuesGuardar) {
+    const b = abrirSheet(`<form id="form-clave" novalidate>${cabeza(S.config.claveCopia ? 'Cambiar contraseña' : 'Contraseña de las copias')}<div style="display:grid; gap:14px">
+      <p class="note" style="margin:0">Tus copias se guardan cifradas con esta contraseña. La necesitarás para abrirlas en otro dispositivo. Usa al menos 8 caracteres y guárdala en un lugar seguro: sin ella, la copia no se puede abrir.</p>
+      ${campoClave('c-pass', 'Contraseña', true)}
+      ${campoClave('c-pass2', 'Repite la contraseña')}
+      <p class="form-error" id="c-error" role="alert"></p>
+    </div></form>`);
+    $('#form-clave', b).addEventListener('submit', (e) => {
+      e.preventDefault();
+      const a = $('#c-pass', b).value, a2 = $('#c-pass2', b).value;
+      if (a.length < 8) { $('#c-error', b).textContent = 'Usa al menos 8 caracteres.'; return; }
+      if (a !== a2) { $('#c-error', b).textContent = 'Las contraseñas no coinciden.'; return; }
+      S.config.claveCopia = a; cacheClave = null; guardar(); llaveCopia().catch(() => {});
+      volverAjustes();
+      toast(despuesGuardar ? 'Contraseña lista. Toca «Guardar copia».' : 'Contraseña guardada');
+    });
+  }
+  function sheetVerClave() {
+    abrirSheet(`${cabeza('Contraseña de las copias', false)}<div style="display:grid; gap:14px">
+      <div class="clave-ver">${esc(S.config.claveCopia)}</div>
+      <p class="note" style="margin:0">Es la que pide «Abrir copia» en otro dispositivo. Fíjate en mayúsculas, espacios y acentos: deben ser exactamente iguales. Las copias que guardaste antes de cambiarla se abren con la contraseña anterior.</p>
+    </div>`);
+  }
+  function sheetPedirClave(probar, alAbrir, fecha) {
+    const cuando = fecha && !isNaN(new Date(fecha)) ? ` del ${new Date(fecha).toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })}` : '';
+    const b = abrirSheet(`<form id="form-abrir" novalidate>${cabeza('Abrir copia cifrada')}<div style="display:grid; gap:14px">
+      <p class="note" style="margin:0">Escribe la contraseña con la que guardaste esta copia${cuando}.</p>
+      ${campoClave('o-pass', 'Contraseña de la copia', true)}
+      <p class="form-error" id="o-error" role="alert"></p>
+      <p class="note" id="o-ayuda" style="margin:0" hidden>¿No la recuerdas? En el dispositivo donde guardaste la copia ve a Ajustes › «Ver contraseña de las copias». Si la cambiaste después de guardar esta copia, usa la anterior.</p>
+    </div></form>`);
+    const btn = b.querySelector('[type=submit]'); btn.textContent = 'Abrir';
+    $('#form-abrir', b).addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pass = $('#o-pass', b).value;
+      if (!pass) { $('#o-error', b).textContent = 'Escribe la contraseña.'; return; }
+      $('#o-error', b).textContent = ''; btn.disabled = true; btn.textContent = 'Abriendo…';
+      try { const datos = await probar(pass); cerrarSheet(); alAbrir(datos); }
+      catch (er) { $('#o-error', b).textContent = 'La contraseña no coincide con la de esta copia.'; $('#o-ayuda', b).hidden = false; btn.disabled = false; btn.textContent = 'Abrir'; }
+    });
+  }
+
   // ----- Copias -----
-  const textoCopia = () => JSON.stringify({ app: 'presupuestos-trabajo', version: 1, fecha: new Date().toISOString(), datos: S }, null, 2);
+  // Devuelve el texto de la copia (cifrada si se puede), o null si falta crear la contraseña.
+  async function armarCopia() {
+    const { claveCopia, ...cfg } = S.config;
+    const datos = { ...S, config: cfg };
+    if (cifradoOk) {
+      if (!claveCopia) return null;
+      const k = await llaveCopia(), c = await cifrar(k.key, datos);
+      return JSON.stringify({ app: 'presupuestos-trabajo', version: 2, fecha: new Date().toISOString(), cifrado: { alg: 'AES-GCM', kdf: 'PBKDF2-SHA256', iter: ITER_COPIA, salt: b64(k.salt), iv: c.iv }, datos: c.ct });
+    }
+    return JSON.stringify({ app: 'presupuestos-trabajo', version: 1, fecha: new Date().toISOString(), datos }, null, 2);
+  }
   async function guardarCopia() {
     if (!hayDatos()) { toast('Todavía no hay datos para guardar.'); return; }
-    const nombre = 'presupuestos-' + hoyISO() + '.json';
-    if (await bajarArchivo(nombre, textoCopia(), 'application/json')) { lsSet('pt_ultima_copia', Date.now()); render(); }
+    if (cifradoOk && !S.config.claveCopia) { sheetClaveCopia(true); return; }
+    let texto;
+    try { texto = await armarCopia(); } catch (e) { toast('No se pudo cifrar la copia.'); return; }
+    if (!texto) { toast('No se pudo crear la copia.'); return; }
+    if (await bajarArchivo('presupuestos-' + hoyISO() + '.json', texto, 'application/json')) { lsSet('pt_ultima_copia', Date.now()); render(); }
   }
   $('#archivo').addEventListener('change', async (e) => {
     const f = e.target.files && e.target.files[0]; e.target.value = '';
     if (!f) return;
     let d;
     try { d = JSON.parse(await f.text()); } catch (er) { toast('Ese archivo no es una copia válida.'); return; }
-    const datos = d && d.app === 'presupuestos-trabajo' ? d.datos : d && Array.isArray(d.presupuestos) ? d : null;
-    if (!datos || !Array.isArray(datos.presupuestos)) { toast(d && d.app === 'mis-finanzas' ? 'Esa copia es de Mis Finanzas, no de Presupuestos.' : 'Ese archivo no es una copia de Presupuestos.'); return; }
-    const n = datos.presupuestos.length;
-    if (hayDatos() && !(await confirmar('¿Reemplazar tus datos?', `La copia tiene ${n} ${n === 1 ? 'presupuesto' : 'presupuestos'}${d.fecha ? ' (guardada el ' + fCorta(isoDe(new Date(d.fecha))) + ')' : ''}. Lo que hay ahora en este dispositivo se reemplaza.`, 'Reemplazar'))) return;
-    S = normalizar(datos); presAbierto = null; lsSet('pt_ultima_copia', Date.now()); guardar(); vista = 'inicio'; render(); toast('Copia abierta');
+    if (d && d.app === 'mis-finanzas') { toast('Esa copia es de Mis Finanzas, no de Presupuestos.'); return; }
+    const aplicar = async (datos) => {
+      if (!datos || !Array.isArray(datos.presupuestos)) { toast('Ese archivo no es una copia de Presupuestos.'); return; }
+      const n = datos.presupuestos.length;
+      if (hayDatos() && !(await confirmar('¿Reemplazar tus datos?', `La copia tiene ${n} ${n === 1 ? 'presupuesto' : 'presupuestos'}${d.fecha ? ' (guardada el ' + fCorta(isoDe(new Date(d.fecha))) + ')' : ''}. Lo que hay ahora en este dispositivo se reemplaza.`, 'Reemplazar'))) return;
+      const clave = S.config.claveCopia;
+      S = normalizar(datos); if (!S.config.claveCopia) S.config.claveCopia = clave;
+      presAbierto = null; lsSet('pt_ultima_copia', Date.now()); guardar(); vista = 'inicio'; render(); toast('Copia abierta');
+    };
+    if (d && d.app === 'presupuestos-trabajo' && d.cifrado && typeof d.datos === 'string') {
+      if (!cifradoOk) { toast('Abre la app desde su dirección web (https) para abrir copias cifradas.'); return; }
+      let salt;
+      try { salt = unb64(d.cifrado.salt); const iv = unb64(d.cifrado.iv), ct = unb64(d.datos); if (salt.length < 8 || iv.length !== 12 || ct.length < 17) throw new Error('corta'); }
+      catch (er) { toast('Esta copia está incompleta o dañada. Prueba con otra copia.'); return; }
+      const iter = d.cifrado.iter || ITER_COPIA;
+      const una = async (pass) => descifrar(await derivar(pass, salt, iter), d.cifrado.iv, d.datos);
+      const probar = async (pass) => {
+        const t = pass.trim();
+        const vars = [...new Set([pass, t, t.charAt(0).toLowerCase() + t.slice(1), t.charAt(0).toUpperCase() + t.slice(1)])].filter(Boolean);
+        for (const v of vars) { try { return await una(v); } catch (er) {} }
+        throw new Error('clave');
+      };
+      if (S.config.claveCopia) { try { aplicar(await una(S.config.claveCopia)); return; } catch (er) {} }
+      sheetPedirClave(probar, aplicar, d.fecha);
+      return;
+    }
+    aplicar(d && d.app === 'presupuestos-trabajo' ? d.datos : d);
   });
 
   // ================= Reportes =================
@@ -1450,6 +1774,10 @@
     'nuevo-metodo': () => sheetMetodo(null),
     'editar-metodo': (t) => sheetMetodo(t.dataset.id),
     'guardar-copia': () => guardarCopia(),
+    'pin-cambiar': () => sheetPin('cambiar'),
+    'bloquear-ahora': () => bloquearAhora(),
+    'clave-copia': () => sheetClaveCopia(false),
+    'ver-clave': () => sheetVerClave(),
     'abrir-copia': () => $('#archivo').click(),
     'borrar-todo': async () => {
       if (!(await confirmar('¿Borrar todo?', 'Se borran todos los presupuestos, gastos y pagos de este dispositivo. Guarda una copia antes si la vas a necesitar.', 'Borrar todo'))) return;
@@ -1536,7 +1864,10 @@
   // ================= Inicio =================
   (async () => {
     const h = location.hash.slice(1); if (VISTAS[h]) vista = h;
-    await cargar(); render();
+    let est;
+    try { est = await cargar(); } catch (e) { S = normalizar(lsGet('presupuestos_estado') || {}); }
+    if (cifradoOk) await revisarBio();
+    if (est === 'bloqueada') mostrarLock(); else render();
     try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) {}
   })();
 })();
