@@ -650,7 +650,7 @@
         id: String(g.id), presId: g.presId, catId: p.categorias.some((c) => c.id === g.catId) ? g.catId : null,
         concepto: String(g.concepto || ''), proveedor: String(g.proveedor || ''), total: Math.max(0, r2(g.total)),
         fecha: /^\d{4}-\d{2}-\d{2}$/.test(g.fecha || '') ? g.fecha : hoyISO(), notas: String(g.notas || ''),
-        pagos: (Array.isArray(g.pagos) ? g.pagos : []).filter((x) => x && x.id).map((x) => ({ id: String(x.id), fecha: /^\d{4}-\d{2}-\d{2}$/.test(x.fecha || '') ? x.fecha : hoyISO(), monto: Math.max(0, r2(x.monto)), metodoId: String(x.metodoId || ''), persona: String(x.persona || ''), reembolsado: !!x.reembolsado })),
+        pagos: (Array.isArray(g.pagos) ? g.pagos : []).filter((x) => x && x.id).map((x) => ({ id: String(x.id), fecha: /^\d{4}-\d{2}-\d{2}$/.test(x.fecha || '') ? x.fecha : hoyISO(), monto: Math.max(0, r2(x.monto)), metodoId: String(x.metodoId || ''), persona: String(x.persona || ''), cheque: String(x.cheque || ''), reembolsado: !!x.reembolsado })),
         creado: g.creado || new Date().toISOString()
       };
     });
@@ -714,6 +714,8 @@
     if (/transfer|banco|deposito|wire|zelle|ach/.test(n)) return ICAT.banco;
     return ICAT.tarjeta;
   }
+  const esCheque = (m) => !!(m && /cheque/.test(slug(m.nombre)));
+  const txtMetodo = (x) => { const m = metodo(x.metodoId); return (m ? m.nombre : 'Forma de pago') + (x.cheque ? ' #' + x.cheque : ''); };
   const presupuestoDe = (p) => (p.total > 0 ? p.total : suma(p.categorias.map((c) => c.limite)));
   const hayDatos = () => S.presupuestos.length > 0;
   function resumen(p) {
@@ -849,7 +851,7 @@
       if (filtro.estado === 'pend' && pendG(g) <= 0.005) return false;
       if (filtro.estado === 'pag' && pendG(g) > 0.005) return false;
       if (filtro.estado === 'reemb' && !g.pagos.some((x) => esReemb(x) && !x.reembolsado)) return false;
-      if (q) { const c = catDe(p, g.catId); const txt = slug([g.concepto, g.proveedor, g.notas, c ? c.nombre : '', ...g.pagos.map((x) => x.persona)].join(' ')); if (!txt.includes(q)) return false; }
+      if (q) { const c = catDe(p, g.catId); const txt = slug([g.concepto, g.proveedor, g.notas, c ? c.nombre : '', ...g.pagos.map((x) => x.persona + ' ' + x.cheque)].join(' ')); if (!txt.includes(q)) return false; }
       return true;
     }).sort((a, b) => b.fecha.localeCompare(a.fecha) || b.creado.localeCompare(a.creado));
     const hayFiltro = filtro.cat || filtro.estado || filtro.q;
@@ -1053,6 +1055,7 @@
       <div class="group" id="g-pago">
         <div class="frow" id="row-ant"><label for="g-ant">Anticipo</label><input id="g-ant" class="money" type="text" inputmode="numeric" placeholder="$0.00" autocomplete="off"></div>
         <div class="frow"><label for="g-met">Pagado con</label><select id="g-met">${opsMetodo(S.metodos[0] ? S.metodos[0].id : '')}</select></div>
+        <div class="frow" id="row-chq"><label for="g-chq">No. de cheque</label><input id="g-chq" type="text" inputmode="numeric" placeholder="Opcional" autocomplete="off"></div>
         <div class="frow" id="row-pers"><label for="g-pers">¿Quién pagó?</label><input id="g-pers" type="text" autocapitalize="words" list="dl-pers" placeholder="Nombre de la persona" autocomplete="off"></div>
       </div>`}
       <p class="form-error" id="g-error" role="alert"></p>
@@ -1065,7 +1068,7 @@
       b.querySelectorAll('.seg button').forEach((bt) => bt.classList.toggle('on', bt.dataset.modo === modo));
       $('#g-pago', b).hidden = modo === 'nada';
       $('#row-ant', b).hidden = modo !== 'anticipo';
-      const m = metodo($('#g-met', b).value); $('#row-pers', b).hidden = !(m && m.reembolso);
+      const m = metodo($('#g-met', b).value); $('#row-pers', b).hidden = !(m && m.reembolso); $('#row-chq', b).hidden = !esCheque(m);
     };
     if (!g) { b.querySelectorAll('.seg button').forEach((bt) => bt.addEventListener('click', () => { modo = bt.dataset.modo; pintar(); if (modo === 'anticipo') $('#g-ant', b).focus(); })); $('#g-met', b).addEventListener('change', pintar); }
     pintar();
@@ -1095,7 +1098,7 @@
         if (modo === 'anticipo') { monto = parseMonto($('#g-ant', b).value); if (isNaN(monto) || monto <= 0) { err.textContent = 'Escribe cuánto se dio de anticipo.'; return; } if (monto > datos.total + 0.005) { err.textContent = 'El anticipo no puede ser mayor que el total.'; return; } }
         const persona = m && m.reembolso ? $('#g-pers', b).value.trim() : '';
         if (m && m.reembolso && !persona) { err.textContent = 'Escribe quién lo pagó para saber a quién reembolsar.'; return; }
-        ng.pagos.push({ id: nuevoId('x'), fecha, monto: r2(monto), metodoId: m ? m.id : '', persona, reembolsado: false });
+        ng.pagos.push({ id: nuevoId('x'), fecha, monto: r2(monto), metodoId: m ? m.id : '', persona, cheque: esCheque(m) ? $('#g-chq', b).value.trim() : '', reembolsado: false });
       }
       S.gastos.push(ng); guardar(); cerrarSheet(); render(); toast('Gasto agregado');
     });
@@ -1108,7 +1111,7 @@
       <div style="display:flex; gap:12px; align-items:center">${icCat(c)}<div style="min-width:0"><p class="t1" style="font-size:19px; font-weight:700">${esc(g.concepto || 'Gasto')}</p><p class="t2">${esc([g.proveedor, c ? c.nombre : 'Sin categoría', fCorta(g.fecha)].filter(Boolean).join(' · '))}</p></div></div>
       <dl class="kv"><div><dt>Total</dt><dd>${money(g.total)}</dd></div><div><dt>Pagado</dt><dd>${money(pagadoG(g))}</dd></div><div><dt>Falta</dt><dd ${pendG(g) > 0.005 ? 'style="color:var(--c-orange)"' : ''}>${money(pendG(g))}</dd></div></dl>
       ${g.notas ? `<p class="note" style="margin:0">${esc(g.notas)}</p>` : ''}
-      <div><p class="note" style="margin:0 4px 8px">Pagos · <span class="${e.c === 'pos' ? 'pos' : ''}">${e.t}</span></p><div class="group">${pagos.map((x) => { const m = metodo(x.metodoId); const rb = esReemb(x); return `<button class="row" type="button" data-act="editar-pago" data-g="${g.id}" data-x="${x.id}"><span class="ic ic-color">${icMetodo(m)}</span><span class="rt"><span class="t1">${fCorta(x.fecha)}</span><span class="t2" style="white-space:normal">${esc(m ? m.nombre : 'Forma de pago')}${x.persona ? ' · ' + esc(x.persona) : ''}${rb ? (x.reembolsado ? ' · <span class="pos">reembolsado</span>' : ' · <span style="color:var(--c-orange)">por reembolsar</span>') : ''}</span></span><span class="amt">${money(x.monto)}</span></button>`; }).join('') || '<div class="row plain"><span class="rt"><span class="t2">Todavía no hay pagos</span></span></div>'}${pendG(g) > 0.005 ? `<button class="row add-row" type="button" data-act="nuevo-pago" data-g="${g.id}"><span class="ic" style="color:var(--c-blue)">${IC.plus}</span><span class="rt"><span class="t1" style="color:var(--c-blue)">Registrar pago</span></span></button>` : ''}</div></div>
+      <div><p class="note" style="margin:0 4px 8px">Pagos · <span class="${e.c === 'pos' ? 'pos' : ''}">${e.t}</span></p><div class="group">${pagos.map((x) => { const m = metodo(x.metodoId); const rb = esReemb(x); return `<button class="row" type="button" data-act="editar-pago" data-g="${g.id}" data-x="${x.id}"><span class="ic ic-color">${icMetodo(m)}</span><span class="rt"><span class="t1">${fCorta(x.fecha)}</span><span class="t2" style="white-space:normal">${esc(txtMetodo(x))}${x.persona ? ' · ' + esc(x.persona) : ''}${rb ? (x.reembolsado ? ' · <span class="pos">reembolsado</span>' : ' · <span style="color:var(--c-orange)">por reembolsar</span>') : ''}</span></span><span class="amt">${money(x.monto)}</span></button>`; }).join('') || '<div class="row plain"><span class="rt"><span class="t2">Todavía no hay pagos</span></span></div>'}${pendG(g) > 0.005 ? `<button class="row add-row" type="button" data-act="nuevo-pago" data-g="${g.id}"><span class="ic" style="color:var(--c-blue)">${IC.plus}</span><span class="rt"><span class="t1" style="color:var(--c-blue)">Registrar pago</span></span></button>` : ''}</div></div>
       <button class="btn block tinted" type="button" data-act="editar-gasto" data-id="${g.id}">Editar gasto</button></div>`);
   }
   function sheetPago(gid, xid) {
@@ -1121,12 +1124,13 @@
       <div class="group">
         <div class="frow"><label for="x-fecha">Fecha</label><input id="x-fecha" type="date" value="${x ? x.fecha : hoyISO()}"></div>
         <div class="frow"><label for="x-met">Pagado con</label><select id="x-met">${opsMetodo(x ? x.metodoId : (S.metodos[0] || {}).id)}</select></div>
+        <div class="frow" id="row-xc"><label for="x-chq">No. de cheque</label><input id="x-chq" type="text" inputmode="numeric" placeholder="Opcional" value="${x ? esc(x.cheque) : ''}" autocomplete="off"></div>
         <div class="frow" id="row-xp"><label for="x-pers">¿Quién pagó?</label><input id="x-pers" type="text" autocapitalize="words" list="dl-pers" placeholder="Nombre de la persona" value="${x ? esc(x.persona) : ''}" autocomplete="off"></div>
         <div class="frow" id="row-xr"><label for="x-reemb" style="width:auto; flex:1">Ya se le reembolsó</label><input id="x-reemb" class="switch" type="checkbox" ${x && x.reembolsado ? 'checked' : ''}></div>
       </div>
       <p class="form-error" id="x-error" role="alert"></p>
       ${x ? '<button class="btn block destructive" type="button" id="x-borrar">Eliminar pago</button>' : ''}</div>${datalistPersonas()}</form>`);
-    const pintar = () => { const m = metodo($('#x-met', b).value); const rb = !!(m && m.reembolso); $('#row-xp', b).hidden = !rb; $('#row-xr', b).hidden = !rb; };
+    const pintar = () => { const m = metodo($('#x-met', b).value); const rb = !!(m && m.reembolso); $('#row-xp', b).hidden = !rb; $('#row-xr', b).hidden = !rb; $('#row-xc', b).hidden = !esCheque(m); };
     $('#x-met', b).addEventListener('change', pintar); pintar();
     alCerrar = null;
     if (x) $('#x-borrar', b).addEventListener('click', async () => { if (!(await confirmar('¿Eliminar este pago?', money(x.monto) + ' del ' + fCorta(x.fecha) + '.'))) return; g.pagos = g.pagos.filter((y) => y.id !== x.id); guardar(); render(); sheetVerGasto(g.id); });
@@ -1138,7 +1142,7 @@
       const m = metodo($('#x-met', b).value), rb = !!(m && m.reembolso);
       const persona = rb ? $('#x-pers', b).value.trim() : '';
       if (rb && !persona) { err.textContent = 'Escribe quién lo pagó para saber a quién reembolsar.'; return; }
-      const datos = { monto: r2(monto), fecha: $('#x-fecha', b).value || hoyISO(), metodoId: m ? m.id : '', persona, reembolsado: rb && $('#x-reemb', b).checked };
+      const datos = { monto: r2(monto), fecha: $('#x-fecha', b).value || hoyISO(), metodoId: m ? m.id : '', persona, cheque: esCheque(m) ? $('#x-chq', b).value.trim() : '', reembolsado: rb && $('#x-reemb', b).checked };
       if (x) Object.assign(x, datos); else g.pagos.push({ id: nuevoId('x'), ...datos });
       guardar(); render(); sheetVerGasto(g.id); toast('Pago guardado');
     });
@@ -1267,7 +1271,7 @@
     // Pagos
     titulo('Pagos realizados');
     tabla([{ t: 'Fecha', w: 62 }, { t: 'Concepto', w: 160 }, { t: 'Forma de pago', w: 150 }, { t: 'Persona', w: 82 }, { t: 'Monto', w: W - 454, a: 'r' }],
-      D.pagos.map(({ g, x, m }) => ({ v: [fRep(x.fecha), g.concepto || 'Gasto', m ? m.nombre : '', x.persona + (esReemb(x) ? (x.reembolsado ? ' (reemb.)' : ' (pend.)') : ''), money(x.monto)] }))
+      D.pagos.map(({ g, x, m }) => ({ v: [fRep(x.fecha), g.concepto || 'Gasto', (m ? m.nombre : '') + (x.cheque ? ' #' + x.cheque : ''), x.persona + (esReemb(x) ? (x.reembolsado ? ' (reemb.)' : ' (pend.)') : ''), money(x.monto)] }))
         .concat(D.pagos.length ? [{ v: ['Total', '', '', '', money(r.pagado)], bold: true, lineaArriba: true }] : []), { vacio: 'Sin pagos registrados.' });
     // Proveedores
     titulo('Por proveedor');
@@ -1388,10 +1392,10 @@
     const nG = G.length;
     if (D.gs.length) G.push({ c: [{ v: 'Total', s: 'b' }, '', '', '', { f: `SUBTOTAL(9,E2:E${nG})`, v: r.gastado, s: '$b' }, { f: `SUBTOTAL(9,F2:F${nG})`, v: r.pagado, s: '$b' }, { f: `SUBTOTAL(9,G2:G${nG})`, v: r.porPagar, s: '$b' }] });
     // Hoja Pagos
-    const P = [{ c: ['Fecha', 'Concepto', 'Proveedor', 'Categoría', 'Forma de pago', 'Persona', 'Reembolso', 'Monto'], s: 'h' }];
-    D.pagos.forEach(({ g, x, m }) => { const c = catDe(p, g.catId); P.push({ c: [{ v: serial(x.fecha), s: 'd' }, g.concepto, g.proveedor, c ? c.nombre : 'Sin categoría', m ? m.nombre : '', x.persona, esReemb(x) ? (x.reembolsado ? 'Reembolsado' : 'Pendiente') : '', { v: x.monto, s: '$' }] }); });
+    const P = [{ c: ['Fecha', 'Concepto', 'Proveedor', 'Categoría', 'Forma de pago', 'No. de cheque', 'Persona', 'Reembolso', 'Monto'], s: 'h' }];
+    D.pagos.forEach(({ g, x, m }) => { const c = catDe(p, g.catId); P.push({ c: [{ v: serial(x.fecha), s: 'd' }, g.concepto, g.proveedor, c ? c.nombre : 'Sin categoría', m ? m.nombre : '', x.cheque, x.persona, esReemb(x) ? (x.reembolsado ? 'Reembolsado' : 'Pendiente') : '', { v: x.monto, s: '$' }] }); });
     const nP = P.length;
-    if (D.pagos.length) P.push({ c: [{ v: 'Total', s: 'b' }, '', '', '', '', '', '', { f: `SUBTOTAL(9,H2:H${nP})`, v: r.pagado, s: '$b' }] });
+    if (D.pagos.length) P.push({ c: [{ v: 'Total', s: 'b' }, '', '', '', '', '', '', '', { f: `SUBTOTAL(9,I2:I${nP})`, v: r.pagado, s: '$b' }] });
     // Hoja Proveedores
     const V = [{ c: ['Proveedor', 'Gastos', 'Total', 'Pagado', 'Debes'], s: 'h' }];
     D.provs.forEach((o) => { const rn = V.length + 1; V.push({ c: [o.nombre, { v: o.n }, { v: o.total, s: '$' }, { v: o.pagado, s: '$' }, { f: `C${rn}-D${rn}`, v: o.total - o.pagado, s: '$' }] }); });
@@ -1400,7 +1404,7 @@
     const hojas = [
       ['Resumen', hojaXML(R, { anchos: [30, 16, 16, 16, 16, 16, 13] })],
       ['Gastos', hojaXML(G, { anchos: [12, 24, 36, 26, 14, 14, 14, 30, 30], congelar: 1, filtro: `A1:I${Math.max(1, nG)}` })],
-      ['Pagos', hojaXML(P, { anchos: [12, 34, 26, 22, 32, 20, 14, 14], congelar: 1, filtro: `A1:H${Math.max(1, nP)}` })],
+      ['Pagos', hojaXML(P, { anchos: [12, 34, 26, 22, 30, 14, 20, 14, 14], congelar: 1, filtro: `A1:I${Math.max(1, nP)}` })],
       ['Proveedores', hojaXML(V, { anchos: [34, 10, 16, 16, 16], congelar: 1 })]
     ];
     if (r.reembolsos.length) {
