@@ -1007,7 +1007,7 @@
   function vCategorias(p, r) {
     const filas = porCategoria(p, r.gs);
     const conLim = p.categorias.some((c) => c.limite > 0);
-    let html = `<section class="section"><div class="sh"><h2>Por categoría</h2><button class="link sm" type="button" data-act="cats">Editar categorías</button></div><div class="group">`;
+    let html = `<section class="section"><div class="sh"><h2>Por categoría</h2><button class="link sm" type="button" data-act="cats">Editar categorías e íconos</button></div><div class="group">`;
     html += filas.map(({ c, gastado, n }) => {
       const lim = c ? c.limite : 0, ratio = lim > 0 ? gastado / lim : 0;
       let t2 = n ? `${n} ${n === 1 ? 'gasto' : 'gastos'}` : 'Sin gastos todavía';
@@ -1065,17 +1065,21 @@
   }
 
   function vPendientes() {
-    let html = encabezado('Pendientes', '', '', 'Lo que falta pagar a proveedores y lo que hay que reembolsar a personas.');
+    let html = encabezado('Pendientes', '', '', 'Lo que falta pagar a proveedores y lo que hay que reembolsar a personas, por presupuesto.');
     const act = S.presupuestos.filter((p) => !p.archivado);
-    const deudas = [], reem = [];
-    act.forEach((p) => gastosDe(p.id).forEach((g) => { if (pendG(g) > 0.005) deudas.push({ p, g }); g.pagos.forEach((x) => { if (esReemb(x) && !x.reembolsado) reem.push({ p, g, x }); }); }));
-    if (!deudas.length && !reem.length) return html + `<div class="empty"><strong>Todo al corriente</strong>No hay saldos por pagar ni reembolsos pendientes en tus presupuestos activos.</div>`;
-    if (deudas.length) {
-      html += `<section class="section"><div class="sh"><h2>Por pagar a proveedores</h2><span class="muted" style="font-weight:600">${money(suma(deudas.map((d) => pendG(d.g))))}</span></div><div class="group">${deudas.sort((a, b) => a.g.fecha.localeCompare(b.g.fecha)).map(({ p, g }) => `<button class="row" type="button" data-act="ver-gasto" data-id="${g.id}">${icCat(catDe(p, g.catId))}<span class="rt"><span class="t1">${esc(g.proveedor || g.concepto || 'Gasto')}</span><span class="t2" style="white-space:normal">${esc(g.proveedor ? g.concepto : '')}${g.proveedor && g.concepto ? ' · ' : ''}${esc(p.nombre)}</span><span class="t2">Total ${money(g.total)} · pagado ${money(pagadoG(g))}</span></span><span class="amt" style="color:var(--c-orange)">${money(pendG(g))}</span></button>`).join('')}</div></section>`;
-    }
-    if (reem.length) {
-      html += `<section class="section"><div class="sh"><h2>Reembolsos pendientes</h2><span class="muted" style="font-weight:600">${money(suma(reem.map((d) => d.x.monto)))}</span></div><div class="group">${reem.map(({ p, g, x }) => `<div class="row plain"><span class="ic ic-color">${ICAT.personas}</span><span class="rt"><span class="t1">${esc(x.persona || 'Sin nombre')}</span><span class="t2" style="white-space:normal">${esc(g.concepto || 'Gasto')} · ${esc(p.nombre)} · ${fCorta(x.fecha)}</span><button class="link sm" type="button" data-act="reembolsar" data-g="${g.id}" data-x="${x.id}" style="justify-self:start; padding:4px 0">Marcar como reembolsado</button></span><span class="amt">${money(x.monto)}</span></div>`).join('')}</div></section>`;
-    }
+    let alguno = false;
+    act.forEach((p) => {
+      const deudas = [], reem = [];
+      gastosDe(p.id).forEach((g) => { if (pendG(g) > 0.005) deudas.push(g); g.pagos.forEach((x) => { if (esReemb(x) && !x.reembolsado) reem.push({ g, x }); }); });
+      if (!deudas.length && !reem.length) return;
+      alguno = true;
+      const filasD = deudas.sort((a, b) => a.fecha.localeCompare(b.fecha)).map((g) => `<button class="row" type="button" data-act="ver-gasto" data-id="${g.id}">${icCat(catDe(p, g.catId))}<span class="rt"><span class="t1">${esc(g.proveedor || g.concepto || 'Gasto')}</span><span class="t2" style="white-space:normal">${esc(g.proveedor ? g.concepto : '')}${g.proveedor && g.concepto ? ' · ' : ''}${fCorta(g.fecha)}</span><span class="t2">Total ${money(g.total)} · pagado ${money(pagadoG(g))}</span></span><span class="amt" style="color:var(--c-orange)">${money(pendG(g))}</span></button>`).join('');
+      const filasR = reem.map(({ g, x }) => `<div class="row plain"><span class="ic ic-color">${ICAT.personas}</span><span class="rt"><span class="t1">${esc(x.persona || 'Sin nombre')}</span><span class="t2" style="white-space:normal">Reembolso · ${esc(g.concepto || 'Gasto')} · ${fCorta(x.fecha)}</span><button class="link sm" type="button" data-act="reembolsar" data-g="${g.id}" data-x="${x.id}" style="justify-self:start; padding:4px 0">Marcar como reembolsado</button></span><span class="amt">${money(x.monto)}</span></div>`).join('');
+      const totD = suma(deudas.map(pendG)), totR = suma(reem.map((r) => r.x.monto));
+      const resumenTxt = [totD > 0.005 ? 'Por pagar ' + money(totD) : '', totR > 0.005 ? 'Reembolsos ' + money(totR) : ''].filter(Boolean).join(' · ');
+      html += `<section class="section"><div class="sh"><h2 class="tap" data-act="abrir-pres" data-id="${p.id}" style="cursor:pointer">${esc(p.nombre)}</h2><span class="muted" style="font-weight:600; text-align:right">${resumenTxt}</span></div><div class="group">${filasD}${filasR}</div></section>`;
+    });
+    if (!alguno) html += `<div class="empty"><strong>Todo al corriente</strong>No hay saldos por pagar ni reembolsos pendientes en tus presupuestos activos.</div>`;
     return html;
   }
 
@@ -1171,7 +1175,7 @@
       </div>
       <p class="note" style="margin-top:-8px">Si dejas el presupuesto vacío, se usa la suma de los límites de las categorías.${p ? '' : ' Las categorías se crean solas según el tipo y las puedes cambiar después.'}</p>
       <p class="form-error" id="p-error" role="alert"></p>
-      ${p ? '<button class="btn block destructive" type="button" id="p-borrar">Eliminar presupuesto</button>' : ''}
+      ${p ? '<button class="btn block tinted" type="button" data-act="cats">Categorías, límites e íconos</button><button class="btn block destructive" type="button" id="p-borrar">Eliminar presupuesto</button>' : ''}
       </div></form>`);
     const pintar = () => {
       b.querySelectorAll('.seg button').forEach((bt) => bt.classList.toggle('on', bt.dataset.tipo === tipo));
