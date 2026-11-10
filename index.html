@@ -765,7 +765,7 @@
   function filaPres(p) {
     const r = resumen(p), ratio = r.presu > 0 ? r.gastado / r.presu : 0;
     const t2 = r.presu > 0 ? `${money(r.gastado)} de ${money(r.presu)} · ${r.disp >= -0.005 ? 'quedan ' + money(r.disp) : '<span class="neg">te pasaste ' + moneyAbs(r.disp) + '</span>'}` : `${money(r.gastado)} gastado · sin presupuesto definido`;
-    const extra = [periodo(p), r.porPagar > 0.005 ? `<span style="color:var(--c-orange)">Por pagar ${money(r.porPagar)}</span>` : ''].filter(Boolean).join(' · ');
+    const extra = [periodo(p), r.porPagar > 0.005 ? `<span style="color:var(--c-orange)">Por pagar ${money(r.porPagar)}</span>` : '', r.reemb > 0.005 ? `<span style="color:var(--c-orange)">Reembolsos ${money(r.reemb)}</span>` : ''].filter(Boolean).join(' · ');
     return `<button class="row" type="button" data-act="abrir-pres" data-id="${p.id}">${icPres(p)}<span class="rt" style="gap:5px"><span class="t1">${esc(p.nombre)}</span><span class="t2" style="white-space:normal">${t2}</span>${r.presu > 0 ? barra(ratio, colorUso(ratio)) : ''}${extra ? `<span class="t2" style="white-space:normal">${extra}</span>` : ''}</span><span class="chev">${IC.der}</span></button>`;
   }
   function vInicio() {
@@ -778,8 +778,6 @@
       return html;
     }
     if (act.length) {
-      const tot = act.reduce((a, p) => { const r = resumen(p); a.presu += r.presu; a.gastado += r.gastado; a.porPagar += r.porPagar; a.reemb += r.reemb; return a; }, { presu: 0, gastado: 0, porPagar: 0, reemb: 0 });
-      html += `<div class="stats"><div class="stat"><p class="k">Gastado</p><p class="v">${money(tot.gastado)}</p><p class="s">de ${money(tot.presu)} en ${act.length} ${act.length === 1 ? 'presupuesto' : 'presupuestos'}</p></div><div class="stat tap" data-act="tab" data-v="pendientes"><p class="k">Por pagar</p><p class="v" ${tot.porPagar > 0.005 ? 'style="color:var(--c-orange)"' : ''}>${money(tot.porPagar)}</p><p class="s">${tot.reemb > 0.005 ? 'Reembolsos ' + money(tot.reemb) : 'A proveedores'}</p></div></div>`;
       const orden = [...act].sort((a, b) => (b.inicio || b.creado).localeCompare(a.inicio || a.creado));
       html += `<section class="section"><div class="sh"><h2>Activos</h2></div><div class="group">${orden.map(filaPres).join('')}</div></section>`;
     } else html += `<div class="empty"><strong>No hay presupuestos activos</strong><button class="btn small" type="button" data-act="nuevo-pres">Nuevo presupuesto</button></div>`;
