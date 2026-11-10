@@ -1273,6 +1273,58 @@
       </div>${datalistProv()}${datalistPersonas()}</form>`);
     const selCat = $('#g-cat', b);
     selCat.addEventListener('change', () => { const nueva = selCat.value === '_nueva'; $('#row-ncat', b).hidden = !nueva; if (nueva) $('#g-ncat', b).focus(); });
+    // Recordar gastos iguales: al escribir el concepto sugiere los que ya registraste
+    {
+      const inp = $('#g-concepto', b);
+      const sug = document.createElement('div');
+      sug.className = 'sug'; sug.hidden = true; sug.setAttribute('role', 'listbox');
+      inp.closest('.frow').after(sug);
+      let hist = null, lista = [];
+      const historial = () => {
+        const m = new Map();
+        S.gastos.forEach((x) => {
+          if (g && x.id === g.id) return;
+          const n = (x.concepto || '').trim(); if (!n) return;
+          const k = n.toLowerCase(), e = m.get(k) || { n, cnt: 0, last: '', x: null };
+          e.cnt++;
+          if ((x.fecha + x.creado) >= e.last) { e.last = x.fecha + x.creado; e.x = x; e.n = n; }
+          m.set(k, e);
+        });
+        return [...m.values()];
+      };
+      const catDeOtro = (x) => { const pp = pres(x.presId); return catDe(pp, x.catId); };
+      const catAqui = (x) => { if (x.presId === p.id) return catDe(p, x.catId); const c0 = catDeOtro(x); return c0 ? p.categorias.find((c) => slug(c.nombre) === slug(c0.nombre)) || null : null; };
+      const resaltar = (t, q) => { const i = t.toLowerCase().indexOf(q); return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<b>' + esc(t.slice(i, i + q.length)) + '</b>' + esc(t.slice(i + q.length)); };
+      const mostrar = () => {
+        const q = inp.value.trim().toLowerCase();
+        if (!q) { sug.hidden = true; return; }
+        hist = hist || historial();
+        lista = hist.filter((e) => e.n.toLowerCase() !== q && e.n.toLowerCase().includes(q))
+          .sort((a, c) => (c.n.toLowerCase().startsWith(q) - a.n.toLowerCase().startsWith(q)) || c.cnt - a.cnt || c.last.localeCompare(a.last)).slice(0, 5);
+        if (!lista.length) { sug.hidden = true; return; }
+        sug.innerHTML = lista.map((e, i) => { const c = catDeOtro(e.x); return `<button type="button" class="sug-i" role="option" data-i="${i}">${icCat(c)}<span class="rt"><span class="t1">${resaltar(e.n, q)}</span><span class="t2">${esc([e.x.proveedor, c ? c.nombre : '', money(e.x.total), e.cnt + (e.cnt === 1 ? ' vez' : ' veces')].filter(Boolean).join(' · '))}</span></span></button>`; }).join('');
+        sug.hidden = false;
+      };
+      inp.addEventListener('input', mostrar);
+      inp.addEventListener('focus', mostrar);
+      inp.addEventListener('blur', () => setTimeout(() => { sug.hidden = true; }, 180));
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !sug.hidden) { e.stopPropagation(); sug.hidden = true; } });
+      sug.addEventListener('pointerdown', (e) => e.preventDefault());
+      sug.addEventListener('click', (e) => {
+        const bt = e.target.closest('.sug-i'); if (!bt) return;
+        const ent = lista[+bt.dataset.i]; if (!ent) return;
+        const x0 = ent.x;
+        inp.value = ent.n;
+        const prov = $('#g-prov', b); if (x0.proveedor && !prov.value.trim()) prov.value = x0.proveedor;
+        const c = catAqui(x0); if (c) { selCat.value = c.id; $('#row-ncat', b).hidden = true; }
+        const ultimo = [...x0.pagos].sort((a2, b2) => b2.fecha.localeCompare(a2.fecha))[0];
+        const met = $('#g-met', b);
+        if (met && ultimo && metodo(ultimo.metodoId)) { met.value = ultimo.metodoId; met.dispatchEvent(new Event('change')); const pe = $('#g-pers', b); if (pe && ultimo.persona && !pe.value) pe.value = ultimo.persona; }
+        sug.hidden = true;
+        const tot = $('#g-total', b);
+        if (!tot.value) tot.focus();
+      });
+    }
     const pintar = () => {
       if (g) return;
       b.querySelectorAll('.seg button').forEach((bt) => bt.classList.toggle('on', bt.dataset.modo === modo));
