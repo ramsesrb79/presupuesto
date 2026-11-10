@@ -1,5 +1,5 @@
 // Guarda la app en el dispositivo para que funcione sin internet.
-const VERSION = 'presupuestos-v8';
+const VERSION = 'presupuestos-v9';
 const ARCHIVOS = ['./', './index.html', './manifest.webmanifest', './icons/apple-touch-icon.png', './icons/icon-192.png', './icons/icon-512.png', './icons/favicon.png'];
 
 self.addEventListener('install', (e) => {

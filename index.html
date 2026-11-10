@@ -929,10 +929,11 @@
     if (sin.length) filas.push({ c: null, gastado: suma(sin.map((g) => g.total)), pagado: suma(sin.map(pagadoG)), n: sin.length });
     return filas;
   }
+  const az = (a, b) => a.localeCompare(b, 'es', { sensitivity: 'base', numeric: true });
   function porProveedor(gs) {
     const m = new Map();
     gs.forEach((g) => { const k = g.proveedor.trim() || 'Sin proveedor'; const key = slug(k); const o = m.get(key) || { nombre: k, total: 0, pagado: 0, n: 0 }; o.total += g.total; o.pagado += pagadoG(g); o.n += 1; m.set(key, o); });
-    return [...m.values()].sort((a, b) => b.total - a.total);
+    return [...m.values()].sort((a, b) => (a.nombre === 'Sin proveedor') - (b.nombre === 'Sin proveedor') || az(a.nombre, b.nombre));
   }
   function porMes(gs) {
     const m = {}; gs.forEach((g) => { const k = g.fecha.slice(0, 7); m[k] = (m[k] || 0) + g.total; });
@@ -1029,8 +1030,9 @@
     return `<section class="section"><div class="group">${lst.map((o) => { const debe = Math.max(0, o.total - o.pagado); return `<button class="row" type="button" data-act="ver-prov" data-q="${esc(o.nombre === 'Sin proveedor' ? '' : o.nombre)}"><span class="ic ic-color">${ICAT.maletin}</span><span class="rt"><span class="t1">${esc(o.nombre)}</span><span class="t2" style="white-space:normal">${o.n} ${o.n === 1 ? 'gasto' : 'gastos'} · pagado ${money(o.pagado)}${debe > 0.005 ? ` · <span style="color:var(--c-orange)">debes ${money(debe)}</span>` : ''}</span></span><span class="amt">${money(o.total)}</span></button>`; }).join('')}</div></section>`;
   }
   function vGastosFiltros(p) {
-    return `<div class="filters" style="margin-top:12px"><select id="f-cat" aria-label="Categoría"><option value="">Todas las categorías</option>${p.categorias.map((c) => `<option value="${c.id}" ${filtro.cat === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}<option value="_sin" ${filtro.cat === '_sin' ? 'selected' : ''}>Sin categoría</option></select><select id="f-estado" aria-label="Estado"><option value="">Pagados y pendientes</option><option value="pend" ${filtro.estado === 'pend' ? 'selected' : ''}>Con saldo por pagar</option><option value="pag" ${filtro.estado === 'pag' ? 'selected' : ''}>Pagados</option><option value="reemb" ${filtro.estado === 'reemb' ? 'selected' : ''}>Reembolso pendiente</option></select><input id="f-q" type="search" placeholder="Buscar" value="${esc(filtro.q)}" autocomplete="off"></div><div id="g-lista" style="display:grid; gap:14px"></div>`;
+    return `<div class="filters" style="margin-top:12px"><select id="f-cat" aria-label="Categoría"><option value="">Todas las categorías</option>${p.categorias.map((c) => `<option value="${c.id}" ${filtro.cat === c.id ? 'selected' : ''}>${esc(c.nombre)}</option>`).join('')}<option value="_sin" ${filtro.cat === '_sin' ? 'selected' : ''}>Sin categoría</option></select><select id="f-estado" aria-label="Estado"><option value="">Pagados y pendientes</option><option value="pend" ${filtro.estado === 'pend' ? 'selected' : ''}>Con saldo por pagar</option><option value="pag" ${filtro.estado === 'pag' ? 'selected' : ''}>Pagados</option><option value="reemb" ${filtro.estado === 'reemb' ? 'selected' : ''}>Reembolso pendiente</option></select><select id="f-orden" aria-label="Ordenar"><option value="az" ${ordenG() === 'az' ? 'selected' : ''}>Orden: A–Z</option><option value="fecha" ${ordenG() === 'fecha' ? 'selected' : ''}>Orden: más recientes</option></select><input id="f-q" type="search" placeholder="Buscar" value="${esc(filtro.q)}" autocomplete="off"></div><div id="g-lista" style="display:grid; gap:14px"></div>`;
   }
+  const ordenG = () => (lsGet('pt_orden') === 'fecha' ? 'fecha' : 'az');
   function filaGasto(g, p) {
     const c = catDe(p, g.catId), e = estadoG(g);
     const reemb = g.pagos.some((x) => esReemb(x) && !x.reembolsado);
@@ -1048,19 +1050,23 @@
       if (filtro.estado === 'reemb' && !g.pagos.some((x) => esReemb(x) && !x.reembolsado)) return false;
       if (q) { const c = catDe(p, g.catId); const txt = slug([g.concepto, g.proveedor, g.notas, c ? c.nombre : '', ...g.pagos.map((x) => x.persona + ' ' + x.cheque)].join(' ')); if (!txt.includes(q)) return false; }
       return true;
-    }).sort((a, b) => b.fecha.localeCompare(a.fecha) || b.creado.localeCompare(a.creado));
+    }).sort(ordenG() === 'az' ? (a, b) => az(a.concepto || '', b.concepto || '') || b.fecha.localeCompare(a.fecha) : (a, b) => b.fecha.localeCompare(a.fecha) || b.creado.localeCompare(a.creado));
     const hayFiltro = filtro.cat || filtro.estado || filtro.q;
     if (!lst.length) { el.innerHTML = `<div class="empty"><strong>${hayFiltro ? 'Nada con estos filtros' : 'Todavía no hay gastos'}</strong>${hayFiltro ? '<button class="btn small tinted" type="button" data-act="limpiar">Quitar filtros</button>' : 'Toca <b>Agregar gasto</b> para registrar el primero.'}</div>`; return; }
     const total = suma(lst.map((g) => g.total)), pendiente = suma(lst.map(pendG));
     let html = `<div class="totline">${lst.length} ${lst.length === 1 ? 'gasto' : 'gastos'} · <b>${money(total)}</b>${pendiente > 0.005 ? ` · por pagar <b style="color:var(--c-orange)">${money(pendiente)}</b>` : ''}</div>`;
-    const grupos = new Map(); lst.forEach((g) => { const k = g.fecha.slice(0, 7); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(g); });
-    grupos.forEach((gs, k) => { html += `<div><p class="day-h">${esc(nombreMes(k))}</p><div class="group">${gs.map((g) => filaGasto(g, p)).join('')}</div></div>`; });
+    if (ordenG() === 'az') html += `<div class="group">${lst.map((g) => filaGasto(g, p)).join('')}</div>`;
+    else {
+      const grupos = new Map(); lst.forEach((g) => { const k = g.fecha.slice(0, 7); if (!grupos.has(k)) grupos.set(k, []); grupos.get(k).push(g); });
+      grupos.forEach((gs, k) => { html += `<div><p class="day-h">${esc(nombreMes(k))}</p><div class="group">${gs.map((g) => filaGasto(g, p)).join('')}</div></div>`; });
+    }
     el.innerHTML = html;
   }
   function montarGastos() {
     $('#f-cat').addEventListener('change', (e) => { filtro.cat = e.target.value; renderGastos(); });
     $('#f-estado').addEventListener('change', (e) => { filtro.estado = e.target.value; renderGastos(); });
     $('#f-q').addEventListener('input', (e) => { filtro.q = e.target.value; renderGastos(); });
+    $('#f-orden').addEventListener('change', (e) => { lsSet('pt_orden', e.target.value); renderGastos(); });
     renderGastos();
   }
 
@@ -1578,22 +1584,32 @@
   });
 
   // ================= Reportes =================
+  const SECCIONES = [['resumen', 'Resumen', 'Presupuesto, gastado, pagado, por pagar'], ['categorias', 'Gastos por categoría', 'Cuánto se gastó en cada categoría'], ['detalle', 'Detalle de gastos', 'Cada gasto con proveedor, pagado y pendiente'], ['pagos', 'Pagos realizados', 'Cada pago con forma de pago y no. de cheque'], ['proveedores', 'Por proveedor', 'Cuánto se le pagó y se le debe a cada uno'], ['reembolsos', 'Reembolsos pendientes', 'Lo que falta reembolsar a personas']];
+  const opsRep = () => { const g = lsGet('pt_rep_opts') || {}; const o = {}; SECCIONES.forEach(([k]) => { o[k] = g[k] !== false; }); return o; };
   function sheetReporte(id) {
     const p = pres(id); if (!p) return;
-    abrirSheet(`${cabeza('Reporte', false)}<div style="display:grid; gap:14px"><p class="note" style="margin:0">${esc(p.nombre)} · resumen, gastos por categoría, pagos, proveedores y pendientes.</p><div class="group"><button class="row" type="button" data-act="rep-pdf" data-id="${p.id}"><span class="ic ic-color">${ICAT.recibo}</span><span class="rt"><span class="t1">PDF</span><span class="t2">Para imprimir o mandar por correo</span></span><span class="chev">${IC.der}</span></button><button class="row" type="button" data-act="rep-xlsx" data-id="${p.id}"><span class="ic ic-color">${ICAT.grafica}</span><span class="rt"><span class="t1">Excel (.xlsx)</span><span class="t2">Para trabajar los números (abre en Excel o Numbers)</span></span><span class="chev">${IC.der}</span></button></div></div>`);
+    const o = opsRep();
+    abrirSheet(`${cabeza('Reporte', false)}<div style="display:grid; gap:14px"><p class="note" style="margin:0">${esc(p.nombre)} · elige qué quieres que lleve el reporte.</p><div class="group">${SECCIONES.map(([k, n, d]) => `<div class="frow"><label for="rs-${k}" style="width:auto; flex:1; display:grid; gap:2px"><span>${n}</span><span class="t2" style="font-size:13px; color:var(--label-2)">${d}</span></label><input id="rs-${k}" class="switch" type="checkbox" data-sec="${k}" ${o[k] ? 'checked' : ''}></div>`).join('')}</div><p class="form-error" id="rs-error" role="alert"></p><div class="group"><button class="row" type="button" data-act="rep-pdf" data-id="${p.id}"><span class="ic ic-color">${ICAT.recibo}</span><span class="rt"><span class="t1">Crear PDF</span><span class="t2">Para imprimir o mandar por correo</span></span><span class="chev">${IC.der}</span></button><button class="row" type="button" data-act="rep-xlsx" data-id="${p.id}"><span class="ic ic-color">${ICAT.grafica}</span><span class="rt"><span class="t1">Crear Excel (.xlsx)</span><span class="t2">Para trabajar los números (abre en Excel o Numbers)</span></span><span class="chev">${IC.der}</span></button></div></div>`);
+  }
+  function leerOpsRep() {
+    const o = {}; let alguna = false;
+    document.querySelectorAll('#sheet-box [data-sec]').forEach((i) => { o[i.dataset.sec] = i.checked; alguna = alguna || i.checked; });
+    if (!alguna) { const e = $('#rs-error'); if (e) e.textContent = 'Elige al menos una sección.'; return null; }
+    lsSet('pt_rep_opts', o);
+    return o;
   }
   const nombreArchivo = (p, ext) => slug(p.nombre).replace(/^-|-$/g, '').slice(0, 40) + '-' + hoyISO() + '.' + ext;
   function datosReporte(p) {
     const r = resumen(p);
     const cats = porCategoria(p, r.gs);
-    const gs = [...r.gs].sort((a, b) => a.fecha.localeCompare(b.fecha) || a.creado.localeCompare(b.creado));
+    const gs = [...r.gs].sort((a, b) => az(a.concepto || '', b.concepto || '') || a.fecha.localeCompare(b.fecha) || a.creado.localeCompare(b.creado));
     const pagos = []; gs.forEach((g) => g.pagos.forEach((x) => pagos.push({ g, x, m: metodo(x.metodoId) })));
     pagos.sort((a, b) => a.x.fecha.localeCompare(b.x.fecha));
     return { p, r, cats, gs, pagos, provs: porProveedor(r.gs) };
   }
 
   // ----- PDF -----
-  function pdfReporte(p) {
+  function pdfReporte(p, op = opsRep()) {
     const D = datosReporte(p), r = D.r, T = TIPOS[p.tipo];
     const PW = 612, PH = 792, M = 44, X1 = PW - M, W = X1 - M;
     const paginas = []; let ops = [], y = 0;
@@ -1626,6 +1642,7 @@
     T_(M, p.nombre, 20, true); y -= 16;
     T_(M, ['Reporte de presupuesto', T.n, periodo(p)].filter(Boolean).join(' · '), 9.5, false, 0.35); y -= 12;
     T_(M, 'Generado el ' + fRep(hoyISO()), 8.5, false, 0.45); y -= 22;
+    if (op.resumen) {
     // Tarjetas de resumen
     const kv = [['Presupuesto', r.presu > 0 ? money(r.presu) : 'Sin definir'], ['Gastado', money(r.gastado)], [r.disp >= -0.005 ? 'Disponible' : 'Excedido', r.presu > 0 ? moneyAbs(r.disp) : '-'], ['Pagado', money(r.pagado)], ['Por pagar', money(r.porPagar)], ['Reembolsos pend.', money(r.reemb)]];
     if (p.personas > 0) kv.push([p.tipo === 'evento' ? 'Costo por invitado' : 'Costo por persona', money(r.porPersona) + ' (' + p.personas + ')']);
@@ -1637,12 +1654,16 @@
       y -= ch + 6;
     }
     if (p.notas) { T_(M, fitPDF('Notas: ' + p.notas, W, 8.5), 8.5, false, 0.35); y -= 14; }
+    }
+    if (op.categorias) {
     // Por categoría
     titulo('Gastos por categoría');
     const cats = D.cats.filter((f) => f.c || f.gastado > 0);
     tabla([{ t: 'Categoría', w: 190 }, { t: 'Presupuesto', w: 82, a: 'r' }, { t: 'Gastado', w: 82, a: 'r' }, { t: 'Diferencia', w: 82, a: 'r' }, { t: '% del total', w: W - 436, a: 'r' }],
       cats.map((f) => { const lim = f.c ? f.c.limite : 0; return { v: [f.c ? f.c.nombre : 'Sin categoría', lim > 0 ? money(lim) : '-', money(f.gastado), lim > 0 ? (lim - f.gastado >= -0.005 ? money(lim - f.gastado) : '-' + moneyAbs(lim - f.gastado)) : '-', r.gastado > 0.005 ? pct(f.gastado / r.gastado * 100) : '-'] }; })
         .concat([{ v: ['Total', r.presu > 0 ? money(r.presu) : '-', money(r.gastado), r.presu > 0 ? (r.disp >= -0.005 ? money(r.disp) : '-' + moneyAbs(r.disp)) : '-', r.gastado > 0.005 ? '100.0%' : '-'], bold: true, lineaArriba: true }]));
+    }
+    if (op.detalle) {
     // Detalle por categoría
     titulo('Detalle de gastos');
     const colsG = [{ t: 'Fecha', w: 62 }, { t: 'Concepto', w: 168 }, { t: 'Proveedor', w: 112 }, { t: 'Total', w: 64, a: 'r' }, { t: 'Pagado', w: 64, a: 'r' }, { t: 'Pendiente', w: W - 470, a: 'r' }];
@@ -1654,17 +1675,22 @@
     });
     if (filasG.length) filasG.push({ v: ['Total', '', '', money(r.gastado), money(r.pagado), money(r.porPagar)], bold: true, lineaArriba: true });
     tabla(colsG, filasG, { vacio: 'Todavía no hay gastos registrados.' });
+    }
+    if (op.pagos) {
     // Pagos
     titulo('Pagos realizados');
     tabla([{ t: 'Fecha', w: 62 }, { t: 'Concepto', w: 160 }, { t: 'Forma de pago', w: 150 }, { t: 'Persona', w: 82 }, { t: 'Monto', w: W - 454, a: 'r' }],
       D.pagos.map(({ g, x, m }) => ({ v: [fRep(x.fecha), g.concepto || 'Gasto', (m ? m.nombre : '') + (x.cheque ? ' #' + x.cheque : ''), x.persona + (esReemb(x) ? (x.reembolsado ? ' (reemb.)' : ' (pend.)') : ''), money(x.monto)] }))
         .concat(D.pagos.length ? [{ v: ['Total', '', '', '', money(r.pagado)], bold: true, lineaArriba: true }] : []), { vacio: 'Sin pagos registrados.' });
+    }
+    if (op.proveedores) {
     // Proveedores
     titulo('Por proveedor');
     tabla([{ t: 'Proveedor', w: 220 }, { t: 'Gastos', w: 50, a: 'r' }, { t: 'Total', w: 82, a: 'r' }, { t: 'Pagado', w: 82, a: 'r' }, { t: 'Debes', w: W - 434, a: 'r' }],
       D.provs.map((o) => ({ v: [o.nombre, String(o.n), money(o.total), money(o.pagado), o.total - o.pagado > 0.005 ? money(o.total - o.pagado) : '-'] })), { vacio: 'Sin proveedores.' });
+    }
     // Reembolsos pendientes
-    if (r.reembolsos.length) {
+    if (op.reembolsos && r.reembolsos.length) {
       titulo('Reembolsos pendientes');
       tabla([{ t: 'Persona', w: 140 }, { t: 'Concepto', w: 210 }, { t: 'Fecha', w: 70 }, { t: 'Monto', w: W - 420, a: 'r' }],
         r.reembolsos.map(({ g, x }) => ({ v: [x.persona || 'Sin nombre', g.concepto || 'Gasto', fRep(x.fecha), money(x.monto)] })).concat([{ v: ['Total', '', '', money(r.reemb)], bold: true, lineaArriba: true }]));
@@ -1751,7 +1777,7 @@
     const af = opt.filtro ? `<autoFilter ref="${opt.filtro}"/>` : '';
     return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">${vista}<sheetFormatPr defaultRowHeight="15"/>${cols ? `<cols>${cols}</cols>` : ''}<sheetData>${rows}</sheetData>${af}<pageMargins left="0.5" right="0.5" top="0.6" bottom="0.6" header="0.3" footer="0.3"/><pageSetup orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>`;
   }
-  function xlsxReporte(p) {
+  function xlsxReporte(p, op = opsRep()) {
     const D = datosReporte(p), r = D.r, T = TIPOS[p.tipo];
     // Hoja Resumen
     const R = [];
@@ -1759,11 +1785,14 @@
     R.push({ c: [{ v: p.nombre, s: 't' }], h: 24 });
     R.push({ c: [{ v: ['Reporte de presupuesto', T.n, periodo(p)].filter(Boolean).join(' · ') + ' · generado el ' + fRep(hoyISO()), s: 's' }] });
     R.push({ c: [] });
+    if (op.resumen) {
     const kv = [['Presupuesto', r.presu], ['Gastado', r.gastado], [r.disp >= -0.005 ? 'Disponible' : 'Excedido', Math.abs(r.disp)], ['Pagado', r.pagado], ['Por pagar', r.porPagar], ['Reembolsos pendientes', r.reemb]];
     if (p.personas > 0) { kv.push([T.personas, null, p.personas]); kv.push([p.tipo === 'evento' ? 'Costo por invitado' : 'Costo por persona', r.porPersona]); }
     kv.forEach(([k, v, n]) => R.push({ c: [{ v: k, s: 'b' }, n != null ? { v: n } : { v: v, s: '$' }] }));
     if (r.presu > 0) R.push({ c: [{ v: 'Usado', s: 'b' }, { v: Math.round(r.gastado / r.presu * 10000) / 10000, s: 'p' }] });
     R.push({ c: [] });
+    }
+    if (op.categorias) {
     R.push({ c: [{ v: 'Gastos por categoría', s: 'b' }] });
     const hdr = R.length + 1;
     R.push({ c: ['Categoría', 'Presupuesto', 'Gastado', 'Pagado', 'Por pagar', 'Diferencia', '% del total'], s: 'h' });
@@ -1772,6 +1801,7 @@
     const a = hdr + 1, b = hdr + cats.length;
     const sumLim = suma(cats.map((f) => (f.c ? f.c.limite : 0)));
     R.push({ c: [{ v: 'Total', s: 'b' }, sumLim > 0 ? { f: `SUM(B${a}:B${b})`, v: sumLim, s: '$b' } : '', { f: `SUM(C${a}:C${b})`, v: r.gastado, s: '$b' }, { f: `SUM(D${a}:D${b})`, v: r.pagado, s: '$b' }, { f: `SUM(E${a}:E${b})`, v: r.porPagar, s: '$b' }, '', { v: r.gastado ? 1 : 0, s: 'pb' }] });
+    }
     // Hoja Gastos
     const G = [{ c: ['Fecha', 'Categoría', 'Concepto', 'Proveedor', 'Total', 'Pagado', 'Pendiente', 'Estado', 'Notas'], s: 'h' }];
     D.gs.forEach((g) => { const rn = G.length + 1, c = catDe(p, g.catId); G.push({ c: [{ v: serial(g.fecha), s: 'd' }, c ? c.nombre : 'Sin categoría', g.concepto, g.proveedor, { v: g.total, s: '$' }, { v: pagadoG(g), s: '$' }, { f: `E${rn}-F${rn}`, v: pendG(g), s: '$' }, estadoG(g).t, g.notas] }); });
@@ -1787,18 +1817,18 @@
     D.provs.forEach((o) => { const rn = V.length + 1; V.push({ c: [o.nombre, { v: o.n }, { v: o.total, s: '$' }, { v: o.pagado, s: '$' }, { f: `C${rn}-D${rn}`, v: o.total - o.pagado, s: '$' }] }); });
     const nV = V.length;
     if (D.provs.length) V.push({ c: [{ v: 'Total', s: 'b' }, { f: `SUM(B2:B${nV})`, v: suma(D.provs.map((o) => o.n)) }, { f: `SUM(C2:C${nV})`, v: r.gastado, s: '$b' }, { f: `SUM(D2:D${nV})`, v: r.pagado, s: '$b' }, { f: `SUM(E2:E${nV})`, v: r.porPagar, s: '$b' }] });
-    const hojas = [
-      ['Resumen', hojaXML(R, { anchos: [30, 16, 16, 16, 16, 16, 13] })],
-      ['Gastos', hojaXML(G, { anchos: [12, 24, 36, 26, 14, 14, 14, 30, 30], congelar: 1, filtro: `A1:I${Math.max(1, nG)}` })],
-      ['Pagos', hojaXML(P, { anchos: [12, 34, 26, 22, 30, 14, 20, 14, 14], congelar: 1, filtro: `A1:I${Math.max(1, nP)}` })],
-      ['Proveedores', hojaXML(V, { anchos: [34, 10, 16, 16, 16], congelar: 1 })]
-    ];
-    if (r.reembolsos.length) {
+    const hojas = [];
+    if (op.resumen || op.categorias) hojas.push(['Resumen', hojaXML(R, { anchos: [30, 16, 16, 16, 16, 16, 13] })]);
+    if (op.detalle) hojas.push(['Gastos', hojaXML(G, { anchos: [12, 24, 36, 26, 14, 14, 14, 30, 30], congelar: 1, filtro: `A1:I${Math.max(1, nG)}` })]);
+    if (op.pagos) hojas.push(['Pagos', hojaXML(P, { anchos: [12, 34, 26, 22, 30, 14, 20, 14, 14], congelar: 1, filtro: `A1:I${Math.max(1, nP)}` })]);
+    if (op.proveedores) hojas.push(['Proveedores', hojaXML(V, { anchos: [34, 10, 16, 16, 16], congelar: 1 })]);
+    if (op.reembolsos && r.reembolsos.length) {
       const E = [{ c: ['Persona', 'Concepto', 'Fecha', 'Monto'], s: 'h' }];
       r.reembolsos.forEach(({ g, x }) => E.push({ c: [x.persona || 'Sin nombre', g.concepto, { v: serial(x.fecha), s: 'd' }, { v: x.monto, s: '$' }] }));
       const nE = E.length; E.push({ c: [{ v: 'Total', s: 'b' }, '', '', { f: `SUM(D2:D${nE})`, v: r.reemb, s: '$b' }] });
       hojas.push(['Reembolsos', hojaXML(E, { anchos: [26, 36, 12, 14], congelar: 1 })]);
     }
+    if (!hojas.length) hojas.push(['Resumen', hojaXML(R, { anchos: [30, 16, 16, 16, 16, 16, 13] })]);
     const styles = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="3"><numFmt numFmtId="164" formatCode="&quot;$&quot;#,##0.00;[Red]\\-&quot;$&quot;#,##0.00"/><numFmt numFmtId="165" formatCode="mm/dd/yyyy"/><numFmt numFmtId="166" formatCode="0.0%"/></numFmts><fonts count="5"><font><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="11"/><name val="Calibri"/><family val="2"/></font><font><b/><sz val="16"/><name val="Calibri"/><family val="2"/></font><font><sz val="10"/><color rgb="FF6B7280"/><name val="Calibri"/><family val="2"/></font></fonts><fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill><fill><patternFill patternType="solid"><fgColor rgb="FF0A60D8"/><bgColor indexed="64"/></patternFill></fill></fills><borders count="2"><border><left/><right/><top/><bottom/><diagonal/></border><border><left/><right/><top style="thin"><color rgb="FF9CA3AF"/></top><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="10"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="164" fontId="2" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/><xf numFmtId="0" fontId="3" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="166" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyFont="1"/><xf numFmtId="166" fontId="2" fillId="0" borderId="1" xfId="0" applyNumberFormat="1" applyFont="1" applyBorder="1"/></cellXfs><cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>`;
     const archivos = [
       ['[Content_Types].xml', `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${hojas.map((h, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}<Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`],
@@ -1848,8 +1878,8 @@
       S = normalizar({}); presAbierto = null; guardar(); render(); toast('Datos borrados');
     },
     'reporte': (t) => sheetReporte(t.dataset.id),
-    'rep-pdf': async (t) => { const p = pres(t.dataset.id); if (!p) return; try { const bytes = pdfReporte(p); await bajarArchivo(nombreArchivo(p, 'pdf'), bytes, 'application/pdf'); } catch (e) { console.error(e); toast('No se pudo crear el PDF.'); } },
-    'rep-xlsx': async (t) => { const p = pres(t.dataset.id); if (!p) return; try { const bytes = xlsxReporte(p); await bajarArchivo(nombreArchivo(p, 'xlsx'), bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); } catch (e) { console.error(e); toast('No se pudo crear el Excel.'); } }
+    'rep-pdf': async (t) => { const p = pres(t.dataset.id); if (!p) return; const op = leerOpsRep(); if (!op) return; try { const bytes = pdfReporte(p, op); await bajarArchivo(nombreArchivo(p, 'pdf'), bytes, 'application/pdf'); } catch (e) { console.error(e); toast('No se pudo crear el PDF.'); } },
+    'rep-xlsx': async (t) => { const p = pres(t.dataset.id); if (!p) return; const op = leerOpsRep(); if (!op) return; try { const bytes = xlsxReporte(p, op); await bajarArchivo(nombreArchivo(p, 'xlsx'), bytes, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'); } catch (e) { console.error(e); toast('No se pudo crear el Excel.'); } }
   };
   document.addEventListener('click', (e) => {
     const t = e.target.closest('[data-act]');
