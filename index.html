@@ -592,9 +592,10 @@
       herramienta: s(`<path d="M30 7a8 8 0 0 0-7.5 10.7L8.5 31.7a3.5 3.5 0 0 0 5 5l14-14A8 8 0 0 0 38 15l-5 5-5-1-1-5 5-5a8 8 0 0 0-2-2z" fill="#9aa6b3"/>${'<circle cx="11" cy="34" r="1.4" fill="' + O + '"/>'}`),
       megafono: s(`<path d="M8 20h7l17-9v26l-17-9H8z" fill="#f27b4b"/><path d="M15 20v8" fill="none"/><path d="M13 28l3 10h5l-2-10" fill="#f6c955"/><path d="M37 19a6 6 0 0 1 0 10" fill="none"/>`),
       edificio: s(`<rect x="10" y="7" width="20" height="34" rx="1.5" fill="#8fb8e8"/><rect x="30" y="18" width="10" height="23" rx="1.5" fill="#6aa7e8"/><path d="M15 13h3M22 13h3M15 19h3M22 19h3M15 25h3M22 25h3M18 41v-7h4v7" fill="none"/>`),
+      cheque: s(`<rect x="4" y="12" width="40" height="24" rx="3" fill="#c8ecd6"/><path d="M4 18h40" stroke="#8ed49f" stroke-width="3"/><path d="M10 24h12M10 29h8" fill="none"/><path d="M26 30c2-3 3 1 5-2s3 2 5-1 2 1 3 0" fill="none" stroke="#2f6fd0" stroke-width="2"/><circle cx="36" cy="23" r="3" fill="#6aa7e8"/>`),
       personas: s(`<circle cx="17" cy="16" r="6" fill="#f6c955"/><circle cx="32" cy="18" r="5" fill="#8ed49f"/><path d="M6 38c0-7 5-12 11-12s11 5 11 12z" fill="#6aa7e8"/><path d="M25 38c0-6 3-10 7-10s9 4 9 10z" fill="#b48be8"/>`)
     });
-    Object.assign(NOM_ICAT, { musica: 'Música', globo: 'Decoración', silla: 'Mobiliario', lapiz: 'Papelería', herramienta: 'Herramientas', megafono: 'Publicidad', edificio: 'Oficina', personas: 'Personal' });
+    Object.assign(NOM_ICAT, { cheque: 'Cheque', musica: 'Música', globo: 'Decoración', silla: 'Mobiliario', lapiz: 'Papelería', herramienta: 'Herramientas', megafono: 'Publicidad', edificio: 'Oficina', personas: 'Personal' });
     REGLAS_CAT.unshift(
       [/salon|lugar|local|venue|terraza|jardin/, 'edificio'],
       [/musica|dj|banda|mariachi|sonido|entretenim|show/, 'musica'],
@@ -622,7 +623,7 @@
   };
   const METODOS_BASE = [
     { id: 'mp-tarjeta', nombre: 'Tarjeta de la empresa', reembolso: false },
-    { id: 'mp-cuenta', nombre: 'Transferencia o cheque de la empresa', reembolso: false },
+    { id: 'mp-cuenta', nombre: 'Cheque de la empresa', reembolso: false },
     { id: 'mp-caja', nombre: 'Caja chica (efectivo)', reembolso: false },
     { id: 'mp-personal', nombre: 'Lo pagó una persona (por reembolsar)', reembolso: true }
   ];
@@ -704,6 +705,15 @@
   const pagadoG = (g) => suma(g.pagos.map((x) => x.monto));
   const pendG = (g) => Math.max(0, z(g.total - pagadoG(g)));
   const esReemb = (x) => { const m = metodo(x.metodoId); return !!(m && m.reembolso); };
+  function icMetodo(m) {
+    if (!m) return ICAT.tarjeta;
+    if (m.reembolso) return ICAT.personas;
+    const n = slug(m.nombre);
+    if (/cheque/.test(n)) return ICAT.cheque;
+    if (/efectivo|caja|cash/.test(n)) return ICAT.billetes;
+    if (/transfer|banco|deposito|wire|zelle|ach/.test(n)) return ICAT.banco;
+    return ICAT.tarjeta;
+  }
   const presupuestoDe = (p) => (p.total > 0 ? p.total : suma(p.categorias.map((c) => c.limite)));
   const hayDatos = () => S.presupuestos.length > 0;
   function resumen(p) {
@@ -875,7 +885,7 @@
   function vAjustes() {
     let html = encabezado('Ajustes');
     html += `<section class="section"><div class="sh"><h2>Empresa</h2></div><div class="group"><div class="frow"><label for="cfg-emp">Nombre</label><input id="cfg-emp" type="text" placeholder="Aparece en tus reportes" value="${esc(S.config.empresa)}" autocomplete="off"></div></div></section>`;
-    html += `<section class="section"><div class="sh"><h2>Formas de pago</h2><button class="link sm" type="button" data-act="nuevo-metodo">Agregar</button></div><div class="group">${S.metodos.map((m) => `<button class="row" type="button" data-act="editar-metodo" data-id="${m.id}"><span class="ic ic-color">${m.reembolso ? ICAT.personas : ICAT.tarjeta}</span><span class="rt"><span class="t1">${esc(m.nombre)}</span>${m.reembolso ? '<span class="t2">Se le reembolsa a una persona</span>' : ''}</span><span class="chev">${IC.der}</span></button>`).join('')}</div><p class="note">Al registrar un pago eliges con qué se pagó. Si la forma de pago es "por reembolsar", la app te pide quién lo pagó y lo lleva en Pendientes hasta que lo marques como reembolsado.</p></section>`;
+    html += `<section class="section"><div class="sh"><h2>Formas de pago</h2><button class="link sm" type="button" data-act="nuevo-metodo">Agregar</button></div><div class="group">${S.metodos.map((m) => `<button class="row" type="button" data-act="editar-metodo" data-id="${m.id}"><span class="ic ic-color">${icMetodo(m)}</span><span class="rt"><span class="t1">${esc(m.nombre)}</span>${m.reembolso ? '<span class="t2">Se le reembolsa a una persona</span>' : ''}</span><span class="chev">${IC.der}</span></button>`).join('')}</div><p class="note">Al registrar un pago eliges con qué se pagó. Si la forma de pago es "por reembolsar", la app te pide quién lo pagó y lo lleva en Pendientes hasta que lo marques como reembolsado.</p></section>`;
     const uc = lsGet('pt_ultima_copia');
     html += `<section class="section"><div class="sh"><h2>Copia de seguridad</h2></div><div class="group"><button class="row" type="button" data-act="guardar-copia"><span class="ic ic-color">${ICAT.recibo}</span><span class="rt"><span class="t1">Guardar copia</span><span class="t2">${uc ? 'Última: ' + fCorta(isoDe(new Date(uc))) : 'Todavía no guardas ninguna'}</span></span><span class="chev">${IC.der}</span></button><button class="row" type="button" data-act="abrir-copia"><span class="ic ic-color">${ICAT.bolsa}</span><span class="rt"><span class="t1">Abrir copia</span><span class="t2">Reemplaza lo que hay en este dispositivo</span></span><span class="chev">${IC.der}</span></button></div><p class="note">Tus datos se guardan solo en este dispositivo. Guarda una copia en iCloud Drive de vez en cuando; con ella puedes pasar todo a otro teléfono o computadora con <b>Abrir copia</b>.${nativo ? ' Además, la app guarda sola una copia en Archivos › En mi iPhone.' : ''}</p></section>`;
     html += `<section class="section"><div class="group"><button class="row" type="button" data-act="borrar-todo"><span class="rt"><span class="t1 neg">Borrar todos los datos</span></span></button></div></section>`;
@@ -1098,7 +1108,7 @@
       <div style="display:flex; gap:12px; align-items:center">${icCat(c)}<div style="min-width:0"><p class="t1" style="font-size:19px; font-weight:700">${esc(g.concepto || 'Gasto')}</p><p class="t2">${esc([g.proveedor, c ? c.nombre : 'Sin categoría', fCorta(g.fecha)].filter(Boolean).join(' · '))}</p></div></div>
       <dl class="kv"><div><dt>Total</dt><dd>${money(g.total)}</dd></div><div><dt>Pagado</dt><dd>${money(pagadoG(g))}</dd></div><div><dt>Falta</dt><dd ${pendG(g) > 0.005 ? 'style="color:var(--c-orange)"' : ''}>${money(pendG(g))}</dd></div></dl>
       ${g.notas ? `<p class="note" style="margin:0">${esc(g.notas)}</p>` : ''}
-      <div><p class="note" style="margin:0 4px 8px">Pagos · <span class="${e.c === 'pos' ? 'pos' : ''}">${e.t}</span></p><div class="group">${pagos.map((x) => { const m = metodo(x.metodoId); const rb = esReemb(x); return `<button class="row" type="button" data-act="editar-pago" data-g="${g.id}" data-x="${x.id}"><span class="ic ic-color">${rb ? ICAT.personas : ICAT.tarjeta}</span><span class="rt"><span class="t1">${fCorta(x.fecha)}</span><span class="t2" style="white-space:normal">${esc(m ? m.nombre : 'Forma de pago')}${x.persona ? ' · ' + esc(x.persona) : ''}${rb ? (x.reembolsado ? ' · <span class="pos">reembolsado</span>' : ' · <span style="color:var(--c-orange)">por reembolsar</span>') : ''}</span></span><span class="amt">${money(x.monto)}</span></button>`; }).join('') || '<div class="row plain"><span class="rt"><span class="t2">Todavía no hay pagos</span></span></div>'}${pendG(g) > 0.005 ? `<button class="row add-row" type="button" data-act="nuevo-pago" data-g="${g.id}"><span class="ic" style="color:var(--c-blue)">${IC.plus}</span><span class="rt"><span class="t1" style="color:var(--c-blue)">Registrar pago</span></span></button>` : ''}</div></div>
+      <div><p class="note" style="margin:0 4px 8px">Pagos · <span class="${e.c === 'pos' ? 'pos' : ''}">${e.t}</span></p><div class="group">${pagos.map((x) => { const m = metodo(x.metodoId); const rb = esReemb(x); return `<button class="row" type="button" data-act="editar-pago" data-g="${g.id}" data-x="${x.id}"><span class="ic ic-color">${icMetodo(m)}</span><span class="rt"><span class="t1">${fCorta(x.fecha)}</span><span class="t2" style="white-space:normal">${esc(m ? m.nombre : 'Forma de pago')}${x.persona ? ' · ' + esc(x.persona) : ''}${rb ? (x.reembolsado ? ' · <span class="pos">reembolsado</span>' : ' · <span style="color:var(--c-orange)">por reembolsar</span>') : ''}</span></span><span class="amt">${money(x.monto)}</span></button>`; }).join('') || '<div class="row plain"><span class="rt"><span class="t2">Todavía no hay pagos</span></span></div>'}${pendG(g) > 0.005 ? `<button class="row add-row" type="button" data-act="nuevo-pago" data-g="${g.id}"><span class="ic" style="color:var(--c-blue)">${IC.plus}</span><span class="rt"><span class="t1" style="color:var(--c-blue)">Registrar pago</span></span></button>` : ''}</div></div>
       <button class="btn block tinted" type="button" data-act="editar-gasto" data-id="${g.id}">Editar gasto</button></div>`);
   }
   function sheetPago(gid, xid) {
